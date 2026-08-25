@@ -1,0 +1,52 @@
+services:
+  # -------------------------------------------------------------
+  # PostgreSQL Datenbank
+  # -------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: promptmaster_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: prompt_master
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d prompt_master"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------
+  # Perl Mojolicious Backend (inkl. pdftk & pdflatex)
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: promptmaster_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "4010:4010"
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgrespassword@db:5432/prompt_master"
+      VLLM_ENDPOINT: "${VLLM_ENDPOINT:-https://inference-api.aipier.kn.uniklinik-freiburg.de/v1/chat/completions}"
+      VLLM_API_KEY: "${VLLM_API_KEY:-ap-yfF3E6L2N8ye9YIstxXnUTO9qkQxY4vhWS_yBghDWK4.8bccf6de}"
+      VLLM_MODEL: "${VLLM_MODEL:-gpt-oss-120b}"
+      # Host-IP für lokale Ollama-Anbindung vom Docker-Container aus
+      OLLAMA_ENDPOINT: "${OLLAMA_ENDPOINT:-http://host.docker.internal:11434/v1/chat/completions}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Optional: Live-Code-Reload während der Entwicklung
+      - ./:/app
+
+volumes:
+  pgdata:

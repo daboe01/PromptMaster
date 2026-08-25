@@ -1,0 +1,135 @@
+<?xml version="1.0"?>
+<!DOCTYPE gsmarkup>
+<gsmarkup>
+    <objects>
+        <window bridge="YES" id="mainwindow" title="PromptMaster" width="1200" height="750">
+            <vbox>
+                <!-- Header Toolbar -->
+                <hbox backgroundColor="#F4F6F8" height="45">
+                    <label font="bold" size="15" margin="12">PromptMaster</label>
+                    <hspace/>
+                    <label valign="center">LLM Modell:</label>
+                    <comboBox valign="center" editable="NO" halign="min" width="180" id="model_pop_up" valueBinding="#CPOwner.selectedModel">
+                        <popUpButtonItem title="gpt-oss-120b"/>
+                        <popUpButtonItem title="gemma4:26b-mlx"/>
+                        <popUpButtonItem title="gemma4:31b-mlx"/>
+                        <popUpButtonItem title="qwen3.6:35b-mlx"/>
+                        <popUpButtonItem title="muse-glimmer:30b-mlx"/>
+                    </comboBox>
+                </hbox>
+
+                <!-- Master-Detail SplitView -->
+                <splitView vertical="YES" autosaveName="prompt_master_split">
+
+                    <!-- Linke Spalte: Hierarchischer Prompt-Baum -->
+                    <vbox width="280">
+                        <hbox height="30" backgroundColor="#EAEAEA">
+                            <label font="bold" margin="6">Prompt-Bibliothek</label>
+                        </hbox>
+                        <scrollView hasHorizontalScroller="NO">
+                            <PromptOutlineView id="prompts_outline_view" delegate="#CPOwner"/>
+                        </scrollView>
+                        <ButtonBar target="#CPOwner" plusButtonAction="addNewPrompt:" minusButtonAction="deleteSelectedPrompt:"/>
+                    </vbox>
+
+                    <!-- Rechte Spalte: TabView Konfigurieren / Anwenden -->
+                    <vbox>
+                        <tabView type="topBezel" delegate="#CPOwner" id="main_tab_view">
+
+                            <!-- TAB 1: Konfigurieren -->
+                            <tabViewItem title="Konfigurieren" identifier="config_tab">
+                                <vbox margin="15">
+                                    <!-- Titel-Zeile -->
+                                    <hbox height="30">
+                                        <label font="bold" valign="center">Titel:</label>
+                                        <textField id="prompt_title_field" halign="expand"
+                                        target="#CPOwner" action="titleFieldDidChange:"/>
+                                    </hbox>
+
+                                    <!-- Prompt-Editor -->
+                                    <label font="bold" margin="5">Prompt-Text ({INPUT} als Platzhalter für Anwendungs-Text):</label>
+                                    <scrollView hasHorizontalScroller="NO">
+                                        <textView id="prompt_text_editor" editable="YES" font="Courier 12"/>
+                                    </scrollView>
+
+                                    <!-- Untere Leiste: Ausgabeformat links, PDF Template Upload & Aktionen rechts daneben -->
+                                    <vbox margin="5">
+                                        <label font="bold" margin="2">Ausgabeformat &amp; Template:</label>
+                                        <hbox height="36" valign="center">
+                                            <!-- Ausgabeformat PopUp ganz links -->
+                                            <label valign="center">Format:</label>
+                                            <popUpButton id="format_popup" width="160"
+                                                target="#CPOwner" action="formatSelectionChanged:">
+                                                <popUpButtonItem title="Markdown" tag="0"/>
+                                                <popUpButtonItem title="PDF-Ausfüll-Tool" tag="1"/>
+                                                <popUpButtonItem title="PDF (via LaTeX)" tag="2"/>
+                                            </popUpButton>
+
+                                            <hspace width="16"/>
+
+                                            <!-- Upload Button -->
+                                            <button id="upload_template_btn"
+                                            title="PDF hochladen (oder ziehen)"
+                                            width="200"
+                                            target="#CPOwner"
+                                            action="triggerNativeUploadAction:"/>
+
+                                            <hspace width="12"/>
+
+                                            <!-- Document Icon & Dateiname / Status -->
+                                            <label id="template_icon_label" valign="center" font="15">📄</label>
+                                            <label id="template_name_label" valign="center">Kein Template hochgeladen.</label>
+
+                                            <hspace/>
+
+                                            <!-- Download & Löschen Buttons -->
+                                            <button id="download_template_btn"
+                                            title="Herunterladen"
+                                            target="#CPOwner"
+                                            action="downloadTemplateAction:"/>
+                                            <hspace width="6"/>
+                                            <button id="delete_template_btn"
+                                            title="Löschen"
+                                            target="#CPOwner"
+                                            action="deleteTemplateAction:"/>
+                                        </hbox>
+                                    </vbox>
+                                </vbox>
+                            </tabViewItem>
+
+                            <!-- TAB 2: Anwenden -->
+                            <tabViewItem title="Anwenden" identifier="apply_tab">
+                                <vbox margin="15">
+                                    <label font="bold" margin="5">Eingabetext / Kontext für das LLM:</label>
+                                    <scrollView hasHorizontalScroller="NO">
+                                        <textView id="apply_input_text_view" editable="YES" font="System 12"/>
+                                    </scrollView>
+
+                                    <button id="run_llm_button" title="Ausführen" target="#CPOwner" action="runPromptAction:"/>
+                                </vbox>
+                            </tabViewItem>
+
+                        </tabView>
+                    </vbox>
+
+                </splitView>
+            </vbox>
+        </window>
+    </objects>
+
+    <connectors>
+        <outlet source="CPOwner" target="mainwindow" label="mainWindow"/>
+        <outlet source="CPOwner" target="prompts_outline_view" label="_outlineView"/>
+        <outlet source="CPOwner" target="main_tab_view" label="_mainTabView"/>
+        <outlet source="CPOwner" target="prompt_title_field" label="_titleField"/>
+        <outlet source="CPOwner" target="format_popup" label="_formatPopUp"/>
+        <outlet source="CPOwner" target="prompt_text_editor" label="_promptTextView"/>
+        <outlet source="CPOwner" target="template_icon_label" label="_templateIconLabel"/>
+        <outlet source="CPOwner" target="template_name_label" label="_templateNameLabel"/>
+        <outlet source="CPOwner" target="upload_template_btn" label="_uploadTemplateBtn"/>
+        <outlet source="CPOwner" target="download_template_btn" label="_downloadTemplateBtn"/>
+        <outlet source="CPOwner" target="delete_template_btn" label="_deleteTemplateBtn"/>
+        <outlet source="CPOwner" target="apply_input_text_view" label="_applyInputTextView"/>
+        <outlet source="CPOwner" target="run_llm_button" label="_runButton"/>
+    </connectors>
+</gsmarkup>
