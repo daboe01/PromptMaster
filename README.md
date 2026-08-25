@@ -84,8 +84,7 @@ docker compose up --build -d
 
 ### 4. Anwendung aufrufen
 
-- **Frontend:** Öffne im Browser `http://localhost:3001/Frontend/index.html` (bzw. über deinen Webserver).
-- **Backend API:** Erreichbar unter `http://localhost:4010/api/prompts/tree`.
+Öffne im Browser `http://localhost:3001/Frontend/index.html`
 
 ---
 
