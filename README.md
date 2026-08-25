@@ -17,7 +17,7 @@ Die Anwendung kombiniert ein Desktop-artiges **Cappuccino / Objective-J Frontend
 
 - **Multi-Format-Ausgabe:**
   - **Markdown & Rich-Text:** Ergebnis-Popover mit Reiter-Umschaltung zwischen gerendertem Rich-Text (inkl. Tabellen, Fettung, Listen) und Roh-Markdown.
-  - **LaTeX zu PDF:** Direkte Übersetzung von LaTeX-Code in fertige PDF-Dokumente via `pdflatex`.
+  - **PDF:** Direkter Download von PDF via LaTeX-Code.
   - **Autmatisches Ausfüllen von PDF-Formularen:** Ideal für die einheitlichen Formulare der Ethikkommission.
 
 - **Duales LLM-Routing:**
