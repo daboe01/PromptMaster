@@ -102,40 +102,6 @@ docker compose up --build -d
 
 ---
 
-## 🛠 Manuelle Entwicklungsumgebung (ohne Docker)
-
-### Systemvoraussetzungen (macOS / Linux)
-
-- Perl 5.30+
-- PostgreSQL 14+
-- PDFtk (`pdftk-java` oder native Binary)
-- TeX Live (`pdflatex`)
-
-### Perl-Abhängigkeiten installieren
-
-```bash
-cpanm Mojolicious DBD::Pg Mojo::Pg
-```
-
-### Datenbank vorbereiten
-
-```bash
-createdb prompt_master
-psql -d prompt_master -f init.sql
-```
-
-### Backend starten
-
-```bash
-# Entwicklungsmodus
-morbo app.pl
-
-# Oder Produktionsserver
-hypnotoad app.pl
-```
-
----
-
 ## 📂 Projektstruktur
 
 ```text
