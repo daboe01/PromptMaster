@@ -25,38 +25,18 @@ Die Anwendung kombiniert ein Desktop-artiges **Cappuccino / Objective-J Frontend
   - Lokale Apple-Silicon-/MLX-Modelle (`*mlx`) werden automatisch an eine lokale Ollama-Instanz weitergeleitet.
 
 ---
+## 📋 Anwendungsbeispiel: Ethikantrag / Strukturierte Synopse
 
-## 🏗 Architektur & Tech-Stack
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Browser Client                           │
-│  Cappuccino Framework (Objective-J) + Renaissance Markup    │
-│  - CPMarkdownParser / CPAttributedString / TableAttachment  │
-│  - Drag & Drop TreeController                               │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ HTTP / JSON
-┌──────────────────────────────▼──────────────────────────────┐
-│                  Backend (Docker Container)                 │
-│  Perl (Mojolicious::Lite / Mojo::Pg / Hypnotoad)            │
-│  ├── PDFtk (XFDF Form-Filling & Field Dumps)                │
-│  └── TeX Live (pdflatex Compiler)                           │
-└──────────────┬──────────────────────────────┬───────────────┘
-               │                              │
-┌──────────────▼──────────────┐┌──────────────▼───────────────┐
-│     PostgreSQL 16 (DB)      ││   LLM Endpunkte (vLLM/Ollama)│
-│  - prompts Tabelle          ││   - Remote vLLM (Cloud/GPU)  │
-│  - Bytea PDF Templates      ││   - host.docker.internal (MLX)│
-└─────────────────────────────┘└──────────────────────────────┘
-```
-
-- **Frontend:** Cappuccino (Objective-J), Renaissance Markup (`gui.gsmarkup`), native Web-Components.
-- **Backend:** Perl 5, Mojolicious, `Mojo::Pg`, `DBD::Pg`.
-- **System-Tools:** PDFtk-Java, TeX Live (`pdflatex`).
-- **Datenbank:** PostgreSQL 16.
+1. **Prompt auswählen:** Wähle in der Seitenleiste z. B. *„Strukturierte Synopse aus Freitext“*.
+2. **Template hinterlegen:** Lade das offizielle PDF-Formular der Ethikkommission (z. B. `7-Strukturierte-Synopse.pdf`) per Drag & Drop auf den Upload-Button hoch.
+3. **Eingabetext einfügen:** Wechsle in den Reiter **„Anwenden“** und füge dein Studienprotokoll oder Freitext-Notizen ein.
+4. **Ausführen:** Klicke auf **„⚡ Prompt durch LLM ausführen“**.
+5. **Ergebnis:**
+   - Bei **Markdown**: Das Popover öffnet sich mit sauber gerendertem Rich-Text und Zwischenablage-Funktion.
+   - Bei **PDF**: Das fertige PDF wird automatisch heruntergeladen
+   - Bei **PDF-Ausfüll-Tool**: Die  hinterlegte PDF-Vorlage wird fertig ausgefüllt heruntergeladen.
 
 ---
-
 ## 🚀 Schnellstart mit Docker Compose
 
 ### 1. Repository klonen
@@ -86,19 +66,6 @@ docker compose up --build -d
 ### 4. Anwendung aufrufen
 
 Öffne im Browser `http://localhost:3001/Frontend/index.html`
-
----
-
-## 📋 Anwendungsbeispiel: Ethikantrag / Strukturierte Synopse
-
-1. **Prompt auswählen:** Wähle in der Seitenleiste z. B. *„Strukturierte Synopse aus Freitext“*.
-2. **Template hinterlegen:** Lade das offizielle PDF-Formular der Ethikkommission (z. B. `7-Strukturierte-Synopse.pdf`) per Drag & Drop auf den Upload-Button hoch.
-3. **Eingabetext einfügen:** Wechsle in den Reiter **„Anwenden“** und füge dein Studienprotokoll oder Freitext-Notizen ein.
-4. **Ausführen:** Klicke auf **„⚡ Prompt durch LLM ausführen“**.
-5. **Ergebnis:**
-   - Bei **Markdown**: Das Popover öffnet sich mit sauber gerendertem Rich-Text und Zwischenablage-Funktion.
-   - Bei **PDF**: Das fertige PDF wird automatisch heruntergeladen
-   - Bei **PDF-Ausfüll-Tool**: Die  hinterlegte PDF-Vorlage wird fertig ausgefüllt heruntergeladen.
 
 ---
 
