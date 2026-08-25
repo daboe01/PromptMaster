@@ -98,7 +98,7 @@ docker compose up --build -d
 5. **Ergebnis:**
    - Bei **Markdown**: Das Popover öffnet sich mit sauber gerendertem Rich-Text und Zwischenablage-Funktion.
    - Bei **PDF**: Das fertige PDF wird automatisch heruntergeladen
-   - Bei **PDF-Ausfüll-Tool**: Die fertig ausgefüllte hinterlegte PDF-Vorlage wird automatisch heruntergeladen.
+   - Bei **PDF-Ausfüll-Tool**: Die  hinterlegte PDF-Vorlage wird fertig ausgefüllt heruntergeladen.
 
 ---
 
