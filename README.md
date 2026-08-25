@@ -1,6 +1,6 @@
 # ⚡ PromptMaster
 
-**PromptMaster** ist eine spezialisierte Webanwendung zur Verwaltung, hierarchischen Strukturierung und Ausführung von LLM-Prompts für wissenschaftliche Studienprotokolle, Ethikanträge und medizinische Dokumentationen.
+**PromptMaster** ist eine spezialisierte Webanwendung zur Verwaltung, hierarchischen Strukturierung und Ausführung von LLM-Prompts für wissenschaftliche Studienprotokolle, Ethikanträge und Studienmanagement.
 
 Die Anwendung kombiniert ein Desktop-artiges **Cappuccino / Objective-J Frontend** mit einem **Perl Mojolicious Backend**, nativer **PDFtk-Formularbefüllung**, **LaTeX-Rendering** und flexibler LLM-Anbindung (vLLM & lokales Ollama/MLX).
 <img width="1273" height="857" alt="Bildschirmfoto 2026-08-25 um 21 04 52" src="https://github.com/user-attachments/assets/4e09e5c4-3adb-4ee9-af47-767de4ab752e" />
