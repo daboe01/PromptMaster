@@ -96,8 +96,9 @@ docker compose up --build -d
 3. **Eingabetext einfügen:** Wechsle in den Reiter **„Anwenden“** und füge dein Studienprotokoll oder Freitext-Notizen ein.
 4. **Ausführen:** Klicke auf **„⚡ Prompt durch LLM ausführen“**.
 5. **Ergebnis:**
-   - Bei **PDF-Ausfüll-Tool**: Das fertige, validierte PDF wird automatisch heruntergeladen.
    - Bei **Markdown**: Das Popover öffnet sich mit sauber gerendertem Rich-Text und Zwischenablage-Funktion.
+   - Bei **PDF**: Das fertige PDF wird automatisch heruntergeladen
+   - Bei **PDF-Ausfüll-Tool**: Die fertig ausgefüllte hinterlegte PDF-Vorlage wird automatisch heruntergeladen.
 
 ---
 
