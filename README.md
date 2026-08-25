@@ -102,26 +102,6 @@ docker compose up --build -d
 
 ---
 
-## 📂 Projektstruktur
-
-```text
-├── app.pl                    # Mojolicious Backend & LLM-Routing
-├── Dockerfile                # Docker Image Definition (Perl + PDFtk + LaTeX)
-├── docker-compose.yml        # Multi-Container Setup (App + PostgreSQL)
-├── init.sql                  # Datenbank-Initialisierungsschema
-├── Frontend/
-│   ├── index.html            # Cappuccino Einstiegspunkt
-│   ├── AppController.j       # Hauptcontroller & UI-Logik (Objective-J)
-│   ├── CPMarkdownParser.j    # Markdown zu CPAttributedString Parser
-│   ├── RTFParser.j           # RTF Parser für Rich-Text
-│   ├── _CPTableTextAttachment.j # Tabellen-Rendering Attachment
-│   ├── gui.gsmarkup          # Renaissance UI Layout
-│   └── model.gsmarkup        # Datenmodell-Bindings
-└── README.md
-```
-
----
-
 ## 📄 Lizenz
 
 Dieses Projekt ist unter der **GNU Lesser General Public License v2.1 (LGPL-2.1)** lizenziert – siehe die entsprechenden Header in den Quelldateien.
