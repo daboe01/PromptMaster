@@ -1,8 +1,9 @@
 # ⚡ PromptMaster
 
-**PromptMaster** ist eine spezialisierte Webanwendung zur Verwaltung, hierarchischen Strukturierung und Ausführung von LLM-Prompts für wissenschaftliche Studienprotokolle, Ethikanträge und medizinische Dokumentationen.
+**PromptMaster** ist eine spezialisierte Webanwendung zur Verwaltung, hierarchischen Strukturierung und Ausführung von LLM-Prompts für wissenschaftliche Studienprotokolle, Ethikanträge und Studienmanagement.
 
 Die Anwendung kombiniert ein Desktop-artiges **Cappuccino / Objective-J Frontend** mit einem **Perl Mojolicious Backend**, nativer **PDFtk-Formularbefüllung**, **LaTeX-Rendering** und flexibler LLM-Anbindung (vLLM & lokales Ollama/MLX).
+<img width="1273" height="857" alt="Bildschirmfoto 2026-08-25 um 21 04 52" src="https://github.com/user-attachments/assets/4e09e5c4-3adb-4ee9-af47-767de4ab752e" />
 
 ---
 
@@ -16,13 +17,65 @@ Die Anwendung kombiniert ein Desktop-artiges **Cappuccino / Objective-J Frontend
 
 - **Multi-Format-Ausgabe:**
   - **Markdown & Rich-Text:** Ergebnis-Popover mit Reiter-Umschaltung zwischen gerendertem Rich-Text (inkl. Tabellen, Fettung, Listen) und Roh-Markdown.
-  - **LaTeX zu PDF:** Direkte Übersetzung von LaTeX-Code in fertige PDF-Dokumente via `pdflatex`.
-  - **PDF-Ausfüll-Tool:** Formularbefüllung für offizielle Antragsformulare (z. B. Ethikkommission).
+  - **PDF:** Direkter Download von PDF via LaTeX-Code.
+  - **Autmatisches Ausfüllen von PDF-Formularen:** Ideal für die einheitlichen Formulare der Ethikkommission.
 
 - **Duales LLM-Routing:**
   - Standard-Modelle werden über externe Hochleistungs-Endpunkte geroutet (z. B. vLLM).
   - Lokale Apple-Silicon-/MLX-Modelle (`*mlx`) werden automatisch an eine lokale Ollama-Instanz weitergeleitet.
 
 ---
+## 📋 Anwendungsbeispiel: Ethikantrag / Strukturierte Synopse
 
-## 🏗 Architektur & Tech-Stack
+1. **Prompt auswählen:** Wähle in der Seitenleiste z. B. *„Strukturierte Synopse aus Freitext“*.
+2. **Template hinterlegen:** Lade das offizielle PDF-Formular der Ethikkommission (z. B. `7-Strukturierte-Synopse.pdf`) per Drag & Drop auf den Upload-Button hoch.
+3. **Eingabetext einfügen:** Wechsle in den Reiter **„Anwenden“** und füge dein Studienprotokoll oder Freitext-Notizen ein.
+4. **Ausführen:** Klicke auf **„⚡ Prompt durch LLM ausführen“**.
+5. **Ergebnis:**
+   - Bei **Markdown**: Das Popover öffnet sich mit sauber gerendertem Rich-Text und Zwischenablage-Funktion.
+   - Bei **PDF**: Das fertige PDF wird automatisch heruntergeladen
+   - Bei **PDF-Ausfüll-Tool**: Die  hinterlegte PDF-Vorlage wird fertig ausgefüllt heruntergeladen.
+
+---
+## 🚀 Schnellstart mit Docker Compose
+
+### 1. Repository klonen
+
+```bash
+git clone https://github.com/DEIN_NUTZERNAME/promptmaster.git
+cd promptmaster
+```
+
+### 2. Konfiguration anpassen (Optional)
+
+Erstelle bei Bedarf eine `.env`-Datei im Hauptverzeichnis:
+
+```env
+VLLM_ENDPOINT=https://inference-api.aipier.kn.uniklinik-freiburg.de/v1/chat/completions
+VLLM_API_KEY=dein_api_key_hier
+VLLM_MODEL=gpt-oss-120b
+OLLAMA_ENDPOINT=http://host.docker.internal:11434/v1/chat/completions
+```
+
+### 3. Container starten
+
+```bash
+docker compose up --build -d
+```
+
+### 4. Anwendung aufrufen
+
+Öffne im Browser `http://localhost:3001/Frontend/index.html`
+
+---
+
+## 📄 Lizenz
+
+Dieses Projekt ist unter der **GNU Lesser General Public License v2.1 (LGPL-2.1)** lizenziert – siehe die entsprechenden Header in den Quelldateien.
+
+---
+
+## 👨‍🔬 Autoren & Danksagung
+
+Entwickelt von **Prof. Dr. Daniel Böhringer**  
+Klinik für Augenheilkunde, Universitätsklinikum Freiburg.
