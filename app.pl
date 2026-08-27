@@ -225,15 +225,43 @@ del '/api/prompts/:id' => sub {
 
 post '/api/prompts/reorder' => sub {
     my $c = shift;
-    my $payload = $c->req->json // {};
+    my $payload   = $c->req->json // {};
     my $node_id   = $payload->{id};
-    my $parent_id = $payload->{parent_id};
+    my $parent_id = $payload->{parent_id}; # undef when moved to root
     my $new_index = $payload->{index} // 0;
 
-    my $tx = $c->pg->db->begin;
-    $c->pg->db->query("UPDATE prompts SET parent_id = ?, sort_order = ? WHERE id = ?", $parent_id, $new_index, $node_id);
-    $tx->commit;
+    return $c->render(json => { error => 'Missing id' }, status => 400) unless defined $node_id;
 
+    my $db = $c->pg->db;
+    my $tx = $db->begin;
+
+    # 1. Fetch all sibling IDs under target parent ordered by sort_order
+    my $siblings = $db->query(
+         "SELECT id FROM prompts 
+    WHERE parent_id IS NOT DISTINCT FROM ?
+    ORDER BY sort_order ASC, id ASC",
+    $parent_id
+    )->hashes->to_array;
+
+    my @sibling_ids = map { $_->{id} } @$siblings;
+
+    # 2. Remove the dragged node if it is already in this sibling list
+    @sibling_ids = grep { $_ != $node_id } @sibling_ids;
+
+    # 3. Clamp target index and insert the dragged node at the exact position
+    $new_index = 0 if $new_index < 0;
+    $new_index = scalar(@sibling_ids) if $new_index > scalar(@sibling_ids);
+    splice(@sibling_ids, $new_index, 0, $node_id);
+
+    # 4. Normalize and update all siblings with clean sequential sort_orders
+    for my $order (0 .. $#sibling_ids) {
+        $db->query(
+                    "UPDATE prompts SET parent_id = ?, sort_order = ? WHERE id = ?",
+                    $parent_id, $order, $sibling_ids[$order]
+                    );
+    }
+
+    $tx->commit;
     $c->render(json => { success => 1 });
 };
 

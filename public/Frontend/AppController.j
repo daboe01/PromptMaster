@@ -18,6 +18,24 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
 @implementation _CPOutlineViewContentBinder (PromptMasterDragAndDrop)
 
+- (void)outlineView:(CPOutlineView)anOutlineView setObjectValue:(id)value forTableColumn:(CPTableColumn)tableColumn byItem:(id)item
+{
+    var node = item;
+    if ([item respondsToSelector:@selector(representedObject)])
+        node = [item representedObject];
+
+    if (node && [tableColumn identifier] && [tableColumn identifier] !== @"")
+    {
+        // Setzt den neuen Titel auf dem Datenmodell
+        [node setValue:value forKey:[tableColumn identifier]];
+
+        // Informiert den AppController zur Synchronisation & AutoSave
+        var app = [CPApp delegate];
+        if (app && [app respondsToSelector:@selector(nodeDidInlineEdit:)])
+            [app nodeDidInlineEdit:node];
+    }
+}
+
 - (BOOL)outlineView:(CPOutlineView)anOutlineView writeItems:(CPArray)items toPasteboard:(CPPasteboard)pboard
 {
     var del = [anOutlineView delegate];
@@ -64,8 +82,11 @@ var PromptDragType = @"PromptTreeNodeDragType";
     var column = [[CPTableColumn alloc] initWithIdentifier:@"name"];
     [[column headerView] setStringValue:@"Prompts"];
     [column setResizingMask:CPTableColumnAutoresizingMask];
+    
+    // Spalte für Inline-Editing freischalten
+    [column setEditable:YES];
 
-    // Wichtig: DataView darf Mouse-Events nicht absorbieren
+    // DataView darf Mouse-Events im Ruhemodus nicht abfangen (wichtig für D&D)
     var dv = [column dataView];
     if (dv) {
         if ([dv respondsToSelector:@selector(setEditable:)]) [dv setEditable:NO];
@@ -947,6 +968,26 @@ var PromptDragType = @"PromptTreeNodeDragType";
         [self updateDetailFormWithNode:node];
         [self scheduleAutoSave];
     }];
+}
+
+- (BOOL)outlineView:(CPOutlineView)anOutlineView shouldEditTableColumn:(CPTableColumn)aTableColumn item:(id)anItem
+{
+    return YES;
+}
+
+// Wird aufgerufen, sobald der Inline-Edit beendet wurde
+- (void)nodeDidInlineEdit:(PromptNode)node
+{
+    // Falls das gerade editierte Element auch rechts im Detailformular ausgewählt ist:
+    if (_activeSelectedNode === node)
+    {
+        _isProgrammaticUpdate = YES;
+        [_titleField setStringValue:[node title] || @""];
+        _isProgrammaticUpdate = NO;
+    }
+
+    // Speichert den neuen Titel sofort an die Datenbank
+    [self saveNodeToBackend:node];
 }
 
 // --------------------------------------------------------------------------------
