@@ -2,6 +2,7 @@
  * AppController.j
  * PromptMaster - Drag & Drop fähiger Prompt-Baum via Binder- & OutlineView-Category
  * Mit TabView im Ergebnis-Popover (Rich-Text & Markdown)
+ * Persistiert Aufklappzustände (is_expanded) fehlerfrei in PostgreSQL
  */
 
 @import <Foundation/Foundation.j>
@@ -12,8 +13,6 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
 // --------------------------------------------------------------------------------
 // 1. Category auf _CPOutlineViewContentBinder
-// Schaltet die internen Cappuccino-Bitmasken für Drag & Drop bei TreeController-Bindings frei
-// und leitet die DataSource-Aufrufe an den OutlineView-Delegate weiter.
 // --------------------------------------------------------------------------------
 
 @implementation _CPOutlineViewContentBinder (PromptMasterDragAndDrop)
@@ -26,10 +25,8 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
     if (node && [tableColumn identifier] && [tableColumn identifier] !== @"")
     {
-        // Setzt den neuen Titel auf dem Datenmodell
         [node setValue:value forKey:[tableColumn identifier]];
 
-        // Informiert den AppController zur Synchronisation & AutoSave
         var app = [CPApp delegate];
         if (app && [app respondsToSelector:@selector(nodeDidInlineEdit:)])
             [app nodeDidInlineEdit:node];
@@ -39,14 +36,10 @@ var PromptDragType = @"PromptTreeNodeDragType";
 - (BOOL)outlineView:(CPOutlineView)anOutlineView writeItems:(CPArray)items toPasteboard:(CPPasteboard)pboard
 {
     var del = [anOutlineView delegate];
-    console.log("[D&D BINDER] writeItems aufgerufen. Items:", items, "Delegate:", del);
     if ([del respondsToSelector:@selector(outlineView:writeItems:toPasteboard:)])
     {
-        var result = [del outlineView:anOutlineView writeItems:items toPasteboard:pboard];
-        console.log("[D&D BINDER] Delegate writeItems Rückgabe:", result);
-        return result;
+        return [del outlineView:anOutlineView writeItems:items toPasteboard:pboard];
     }
-    console.warn("[D&D BINDER] Delegate reagiert NICHT auf outlineView:writeItems:toPasteboard:");
     return NO;
 }
 
@@ -60,7 +53,6 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
 - (BOOL)outlineView:(CPOutlineView)anOutlineView acceptDrop:(id)info item:(id)anItem childIndex:(CPInteger)anIndex
 {
-    console.log("[D&D BINDER] acceptDrop aufgerufen.");
     var del = [anOutlineView delegate];
     if ([del respondsToSelector:@selector(outlineView:acceptDrop:item:childIndex:)])
         return [del outlineView:anOutlineView acceptDrop:info item:anItem childIndex:anIndex];
@@ -82,11 +74,8 @@ var PromptDragType = @"PromptTreeNodeDragType";
     var column = [[CPTableColumn alloc] initWithIdentifier:@"name"];
     [[column headerView] setStringValue:@"Prompts"];
     [column setResizingMask:CPTableColumnAutoresizingMask];
-    
-    // Spalte für Inline-Editing freischalten
     [column setEditable:YES];
 
-    // DataView darf Mouse-Events im Ruhemodus nicht abfangen (wichtig für D&D)
     var dv = [column dataView];
     if (dv) {
         if ([dv respondsToSelector:@selector(setEditable:)]) [dv setEditable:NO];
@@ -129,6 +118,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
     CPString _output_format @accessors(property=output_format);
     CPString _template_name @accessors(property=template_name);
     BOOL     _has_template  @accessors(property=has_template);
+    BOOL     _is_expanded   @accessors(property=is_expanded);
     int      _sort_order    @accessors(property=sort_order);
     CPArray  _children      @accessors(property=children);
 }
@@ -145,6 +135,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
         _output_format = dict.output_format || @"markdown";
         _template_name = dict.template_name || @"";
         _has_template  = (dict.has_template == 1 || dict.has_template === true) ? YES : NO;
+        _is_expanded   = (dict.is_expanded === undefined || dict.is_expanded === true || dict.is_expanded == 1 || dict.is_expanded === "t") ? YES : NO;
         _sort_order    = dict.sort_order || 0;
         _children      = [CPMutableArray array];
 
@@ -223,7 +214,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
     CPTextView        _applyInputTextView;
     CPButton          _runButton;
 
-    // Popover für Ausgabe mit Tabs (Rich-Text & Markdown)
+    // Popover für Ausgabe
     CPPopover         _markdownPopover;
     CPTabView         _popoverTabView;
     CPTextView        _popoverRichTextView;
@@ -235,6 +226,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
     CPMutableArray    _rootNodes;
     PromptNode        _activeSelectedNode;
     BOOL              _isProgrammaticUpdate;
+    BOOL              _isLoadingTree;
     id                _autoSaveTimer;
 }
 
@@ -242,11 +234,11 @@ var PromptDragType = @"PromptTreeNodeDragType";
 {
     _rootNodes = [CPMutableArray array];
     _isProgrammaticUpdate = NO;
+    _isLoadingTree = NO;
     _autoSaveTimer = nil;
     _currentOutputMarkdown = @"";
     [self setSelectedModel:@"gemma4:26b-mlx"];
 
-    // 1. CPTreeController initialisieren
     treeController = [[CPTreeController alloc] init];
     [treeController setChildrenKeyPath:@"children"];
     [treeController setLeafKeyPath:@"isLeaf"];
@@ -254,7 +246,6 @@ var PromptDragType = @"PromptTreeNodeDragType";
     [CPBundle loadRessourceNamed:@"model.gsmarkup" owner:self];
     [CPBundle loadRessourceNamed:@"gui.gsmarkup" owner:self];
 
-    // 2. OutlineView & Spalten für D&D absichern
     if ([[_outlineView tableColumns] count] === 0)
     {
         var column = [[CPTableColumn alloc] initWithIdentifier:@"name"];
@@ -283,11 +274,9 @@ var PromptDragType = @"PromptTreeNodeDragType";
     [_outlineView setDraggingDestinationFeedbackStyle:CPTableViewDraggingDestinationFeedbackStyleSourceList];
     [_outlineView registerForDraggedTypes:[CPArray arrayWithObject:PromptDragType]];
 
-    // 3. TreeController Binden
     [_outlineView bind:@"content" toObject:treeController withKeyPath:@"arrangedObjects" options:nil];
     [_outlineView bind:@"selectionIndexPaths" toObject:treeController withKeyPath:@"selectionIndexPaths" options:nil];
 
-    // 4. Delegate & Notifications für Live-Editing
     [_titleField setDelegate:self];
     [_promptTextView setDelegate:self];
 
@@ -301,10 +290,8 @@ var PromptDragType = @"PromptTreeNodeDragType";
                                                  name:CPTextDidChangeNotification
                                                object:_promptTextView];
 
-    // 5. Drag & Drop Listener auf dem Upload-Button einrichten
     [self setupUploadButtonDragAndDrop];
 
-    // 6. Run-Button Styling
     if (_runButton)
     {
         [_runButton setFont:[CPFont boldSystemFontOfSize:13.0]];
@@ -321,7 +308,94 @@ var PromptDragType = @"PromptTreeNodeDragType";
 }
 
 // --------------------------------------------------------------------------------
-// Drag & Drop Delegate-Methoden für den OutlineView
+// OutlineView Expand / Collapse Persistierung
+// --------------------------------------------------------------------------------
+
+- (void)outlineViewItemDidExpand:(CPNotification)aNotification
+{
+    if (_isLoadingTree) return;
+
+    var userInfo = [aNotification userInfo];
+    var item = [userInfo objectForKey:@"CPObject"] || [userInfo objectForKey:@"item"];
+    var node = item;
+    if (item && [item respondsToSelector:@selector(representedObject)]) {
+        node = [item representedObject];
+    }
+
+    if (node && [node id]) {
+        [node setIs_expanded:YES];
+        [self saveExpansionStateForNode:node isExpanded:YES];
+    }
+}
+
+- (void)outlineViewItemDidCollapse:(CPNotification)aNotification
+{
+    if (_isLoadingTree) return;
+
+    var userInfo = [aNotification userInfo];
+    var item = [userInfo objectForKey:@"CPObject"] || [userInfo objectForKey:@"item"];
+    var node = item;
+    if (item && [item respondsToSelector:@selector(representedObject)]) {
+        node = [item representedObject];
+    }
+
+    if (node && [node id]) {
+        [node setIs_expanded:NO];
+        [self saveExpansionStateForNode:node isExpanded:NO];
+    }
+}
+
+- (void)saveExpansionStateForNode:(PromptNode)node isExpanded:(BOOL)isExpanded
+{
+    if (!node || ![node id]) return;
+
+    var payload = {
+        "is_expanded": isExpanded ? true : false
+    };
+
+    var request = [CPURLRequest requestWithURL:@"/api/prompts/" + [node id]];
+    [request setHTTPMethod:@"PUT"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setHTTPBody:JSON.stringify(payload)];
+
+    [CPURLConnection sendAsynchronousRequest:request
+                                       queue:[CPOperationQueue mainQueue]
+                           completionHandler:function(response, data, error) {}];
+}
+
+- (void)restoreExpansionState
+{
+    var arranged = [treeController arrangedObjects];
+    if (!arranged) return;
+
+    var applyExpansion = function(item) {
+        var node = item;
+        if (item && [item respondsToSelector:@selector(representedObject)]) {
+            node = [item representedObject];
+        }
+
+        if (node && [node is_expanded]) {
+            [_outlineView expandItem:item];
+
+            var children = [item childNodes];
+            if (children) {
+                for (var c = 0; c < [children count]; c++) {
+                    applyExpansion([children objectAtIndex:c]);
+                }
+            }
+        } else {
+            [_outlineView collapseItem:item];
+        }
+    };
+
+    var rootChildren = [arranged childNodes];
+    for (var i = 0; i < [rootChildren count]; i++) {
+        applyExpansion([rootChildren objectAtIndex:i]);
+    }
+}
+
+// --------------------------------------------------------------------------------
+// Drag & Drop Delegate-Methoden
 // --------------------------------------------------------------------------------
 
 - (BOOL)outlineView:(CPOutlineView)ov writeItems:(CPArray)items toPasteboard:(CPPasteboard)pboard
@@ -358,10 +432,8 @@ var PromptDragType = @"PromptTreeNodeDragType";
         targetNode = [item representedObject];
     }
 
-    // Drop auf sich selbst verbieten
     if (targetNode && [targetNode id] == draggedId) return CPDragOperationNone;
 
-    // Drop in ein eigenes Kind verbieten (Zirkelschluss)
     var draggedNode = [self findNodeById:draggedId inNodes:_rootNodes];
     if (draggedNode && targetNode && [draggedNode hasDescendantWithId:[targetNode id]]) {
         return CPDragOperationNone;
@@ -385,6 +457,29 @@ var PromptDragType = @"PromptTreeNodeDragType";
     var newParentId = targetNode ? [targetNode id] : null;
     var insertIndex = (childIndex < 0) ? 0 : childIndex;
 
+    var draggedNode = [self findNodeById:draggedId inNodes:_rootNodes];
+    if (draggedNode) {
+        [draggedNode setParent_id:newParentId];
+        [self removeNodeWithId:draggedId fromNodes:_rootNodes];
+        
+        if (targetNode) {
+            var targetChildren = [targetNode children];
+            var actualIndex = MIN(insertIndex, [targetChildren count]);
+            [targetChildren insertObject:draggedNode atIndex:actualIndex];
+            [targetNode setIs_expanded:YES];
+            [self saveExpansionStateForNode:targetNode isExpanded:YES];
+        } else {
+            var actualIndex = MIN(insertIndex, [_rootNodes count]);
+            [_rootNodes insertObject:draggedNode atIndex:actualIndex];
+        }
+        
+        _isLoadingTree = YES;
+        [treeController rearrangeObjects];
+        [_outlineView reloadData];
+        [self restoreExpansionState];
+        _isLoadingTree = NO;
+    }
+
     var payload = {
         "id": draggedId,
         "parent_id": newParentId,
@@ -400,12 +495,28 @@ var PromptDragType = @"PromptTreeNodeDragType";
                                        queue:[CPOperationQueue mainQueue]
                            completionHandler:function(response, data, error)
      {
-        if (!error) {
+        if (error) {
+            console.error("Reorder-Fehler im Backend:", error);
             [self loadPromptTreeSelectingNodeId:draggedId];
         }
     }];
 
     return YES;
+}
+
+- (BOOL)removeNodeWithId:(id)anId fromNodes:(CPMutableArray)nodes
+{
+    for (var i = 0; i < [nodes count]; i++) {
+        var n = [nodes objectAtIndex:i];
+        if ([n id] == anId) {
+            [nodes removeObjectAtIndex:i];
+            return YES;
+        }
+        if ([self removeNodeWithId:anId fromNodes:[n children]]) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 - (PromptNode)findNodeById:(id)anId inNodes:(CPArray)nodes
@@ -421,7 +532,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
 }
 
 // --------------------------------------------------------------------------------
-// Native Drag & Drop Konfiguration für den Upload Button
+// Native Drag & Drop Konfiguration für Upload Button
 // --------------------------------------------------------------------------------
 
 - (void)setupUploadButtonDragAndDrop
@@ -500,7 +611,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
 }
 
 // --------------------------------------------------------------------------------
-// Tree Laden & Selektion
+// Tree Laden & Zustand wiederherstellen
 // --------------------------------------------------------------------------------
 
 - (void)loadPromptTree
@@ -529,55 +640,49 @@ var PromptDragType = @"PromptTreeNodeDragType";
                 [parsedRoots addObject:node];
             }
 
+            // Sicherung aktivieren, damit das Neuaufbauen keine Collapse-Events an die DB sendet
+            _isLoadingTree = YES;
+
             _rootNodes = parsedRoots;
             [treeController setContent:_rootNodes];
+
+            // 1. ZUERST reloadData (baut OutlineView-Struktur auf)
             [_outlineView reloadData];
 
-            setTimeout(function() {
-                var arranged = [treeController arrangedObjects];
-                if (arranged) {
-                    var expandAll = function(item) {
-                        [_outlineView expandItem:item];
-                        var children = [item childNodes];
-                        if (children) {
-                            for (var c = 0; c < [children count]; c++) {
-                                expandAll([children objectAtIndex:c]);
-                            }
-                        }
-                    };
+            // 2. DANACH exakten Aufklappzustand aus DB anwenden
+            [self restoreExpansionState];
 
-                    var rootChildren = [arranged childNodes];
-                    for (var i = 0; i < [rootChildren count]; i++) {
-                        expandAll([rootChildren objectAtIndex:i]);
+            // 3. Selektion wiederherstellen
+            var targetRow = -1;
+            var totalRows = [_outlineView numberOfRows];
+
+            if (targetSelectId !== nil && targetSelectId !== undefined) {
+                for (var r = 0; r < totalRows; r++) {
+                    var item = [_outlineView itemAtRow:r];
+                    var node = item;
+                    if (item && [item respondsToSelector:@selector(representedObject)]) {
+                        node = [item representedObject];
                     }
-
-                    var targetRow = -1;
-                    var totalRows = [_outlineView numberOfRows];
-
-                    if (targetSelectId !== nil && targetSelectId !== undefined) {
-                        for (var r = 0; r < totalRows; r++) {
-                            var item = [_outlineView itemAtRow:r];
-                            var node = item;
-                            if (item && [item respondsToSelector:@selector(representedObject)]) {
-                                node = [item representedObject];
-                            }
-                            if (node && [node id] == targetSelectId) {
-                                targetRow = r;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (targetRow !== -1) {
-                        [_outlineView selectRowIndexes:[CPIndexSet indexSetWithIndex:targetRow] byExtendingSelection:NO];
-                        [_outlineView scrollRowToVisible:targetRow];
-                    } else if (totalRows > 0 && [_outlineView selectedRow] === -1) {
-                        [_outlineView selectRowIndexes:[CPIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+                    if (node && [node id] == targetSelectId) {
+                        targetRow = r;
+                        break;
                     }
                 }
-            }, 60);
+            }
+
+            if (targetRow !== -1) {
+                [_outlineView selectRowIndexes:[CPIndexSet indexSetWithIndex:targetRow] byExtendingSelection:NO];
+                [_outlineView scrollRowToVisible:targetRow];
+            } else if (totalRows > 0 && [_outlineView selectedRow] === -1) {
+                [_outlineView selectRowIndexes:[CPIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+            }
+
+            // 4. ERST JETZT Sicherung aufheben
+            _isLoadingTree = NO;
+
         } catch (e) {
             console.error("JSON Parse Exception:", e);
+            _isLoadingTree = NO;
         }
     }];
 }
@@ -657,7 +762,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
     if ([format isEqualToString:@"pdf_fill"]) {
         [_formatPopUp selectItemWithTitle:@"PDF-Ausfüll-Tool"];
     } else if ([format isEqualToString:@"latex"]) {
-        [_formatPopUp selectItemWithTitle:@"PDF (via LaTeX)"]; // Exakter Titel aus gui.gsmarkup
+        [_formatPopUp selectItemWithTitle:@"PDF (via LaTeX)"];
     } else {
         [_formatPopUp selectItemWithTitle:@"Markdown"];
     }
@@ -718,7 +823,12 @@ var PromptDragType = @"PromptTreeNodeDragType";
     [_activeSelectedNode setTitle:newTitle];
     [_activeSelectedNode setName:newTitle];
 
-    [_outlineView reloadData];
+    var selectedRow = [_outlineView selectedRow];
+    if (selectedRow >= 0) {
+        var item = [_outlineView itemAtRow:selectedRow];
+        [_outlineView reloadItem:item];
+    }
+
     [self scheduleAutoSave];
 }
 
@@ -799,7 +909,11 @@ var PromptDragType = @"PromptTreeNodeDragType";
 {
     if (!_activeSelectedNode) return;
     [self flushActiveEditsToCurrentNode];
-    [_outlineView reloadData];
+
+    var selectedRow = [_outlineView selectedRow];
+    if (selectedRow >= 0) {
+        [_outlineView reloadItem:[_outlineView itemAtRow:selectedRow]];
+    }
 }
 
 // --------------------------------------------------------------------------------
@@ -812,11 +926,17 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
     var parentId = _activeSelectedNode ? [_activeSelectedNode id] : null;
 
+    if (_activeSelectedNode) {
+        [_activeSelectedNode setIs_expanded:YES];
+        [self saveExpansionStateForNode:_activeSelectedNode isExpanded:YES];
+    }
+
     var payload = {
         "parent_id": parentId,
         "title": @"Neuer Prompt",
         "prompt_text": @"Erstelle eine Zusammenfassung:\n\n{INPUT}",
-        "output_format": @"markdown"
+        "output_format": @"markdown",
+        "is_expanded": true
     };
 
     var request = [CPURLRequest requestWithURL:@"/api/prompts"];
@@ -975,10 +1095,8 @@ var PromptDragType = @"PromptTreeNodeDragType";
     return YES;
 }
 
-// Wird aufgerufen, sobald der Inline-Edit beendet wurde
 - (void)nodeDidInlineEdit:(PromptNode)node
 {
-    // Falls das gerade editierte Element auch rechts im Detailformular ausgewählt ist:
     if (_activeSelectedNode === node)
     {
         _isProgrammaticUpdate = YES;
@@ -986,12 +1104,11 @@ var PromptDragType = @"PromptTreeNodeDragType";
         _isProgrammaticUpdate = NO;
     }
 
-    // Speichert den neuen Titel sofort an die Datenbank
     [self saveNodeToBackend:node];
 }
 
 // --------------------------------------------------------------------------------
-// Prompt Ausführen (LLM Inferenz)
+// Prompt Ausführen
 // --------------------------------------------------------------------------------
 
 - (void)runPromptAction:(id)sender
@@ -1061,7 +1178,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
 }
 
 // --------------------------------------------------------------------------------
-// Ergebnis Popover mit TabView (Rich-Text / Markdown Quelltext)
+// Ergebnis Popover
 // --------------------------------------------------------------------------------
 
 - (void)showMarkdownPopoverWithText:(CPString)markdownText relativeToView:(CPView)targetView
@@ -1076,11 +1193,9 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
         var container = [[CPView alloc] initWithFrame:CGRectMake(0, 0, 720, 520)];
 
-        // TabView initialisieren
         _popoverTabView = [[CPTabView alloc] initWithFrame:CGRectMake(15, 15, 690, 445)];
         [_popoverTabView setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
 
-        // 1. Tab: Rich-Text (Formatiert)
         var richTabItem = [[CPTabViewItem alloc] initWithIdentifier:@"richTextTab"];
         [richTabItem setLabel:@"Rich-Text"];
 
@@ -1097,7 +1212,6 @@ var PromptDragType = @"PromptTreeNodeDragType";
         [richTabItem setView:richScrollView];
         [_popoverTabView addTabViewItem:richTabItem];
 
-        // 2. Tab: Markdown Quelltext
         var mdTabItem = [[CPTabViewItem alloc] initWithIdentifier:@"markdownTab"];
         [mdTabItem setLabel:@"Markdown (Quelltext)"];
 
@@ -1117,7 +1231,6 @@ var PromptDragType = @"PromptTreeNodeDragType";
 
         [container addSubview:_popoverTabView];
 
-        // Copy Button unten
         var copyBtn = [[CPButton alloc] initWithFrame:CGRectMake(15, 470, 200, 32)];
         [copyBtn setTitle:@"Markdown kopieren"];
         [copyBtn setTarget:self];
@@ -1129,14 +1242,11 @@ var PromptDragType = @"PromptTreeNodeDragType";
         [_markdownPopover setContentViewController:vc];
     }
 
-    // Markdown in roher Form setzen
     [_popoverMarkdownTextView setString:_currentOutputMarkdown];
 
-    // Markdown parsen und formatiert in den Rich-Text Tab setzen
     var attributedString = [CPMarkdownParser attributedStringFromMarkdown:_currentOutputMarkdown];
     [_popoverRichTextView setString:attributedString];
 
-    // Standardmäßig den Rich-Text Tab aktivieren
     [_popoverTabView selectFirstTabViewItem:self];
 
     [_markdownPopover showRelativeToRect:[targetView bounds] ofView:targetView preferredEdge:CPMaxYEdge];

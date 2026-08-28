@@ -32,11 +32,24 @@
                         <ButtonBar target="#CPOwner" plusButtonAction="addNewPrompt:" minusButtonAction="deleteSelectedPrompt:"/>
                     </vbox>
 
-                    <!-- Rechte Spalte: TabView Konfigurieren / Anwenden -->
+                    <!-- Rechte Spalte: TabView  Anwenden / Konfigurieren -->
                     <vbox>
                         <tabView type="topBezel" delegate="#CPOwner" id="main_tab_view">
 
-                            <!-- TAB 1: Konfigurieren -->
+
+                            <!-- TAB 1: Anwenden -->
+                            <tabViewItem title="Anwenden" identifier="apply_tab">
+                                <vbox margin="15">
+                                    <label font="bold" margin="5">Eingabetext / Kontext für das LLM:</label>
+                                    <scrollView hasHorizontalScroller="NO">
+                                        <textView id="apply_input_text_view" editable="YES" font="System 12"/>
+                                    </scrollView>
+
+                                    <button id="run_llm_button" title="Ausführen" target="#CPOwner" action="runPromptAction:"/>
+                                </vbox>
+                            </tabViewItem>
+
+                            <!-- TAB 2: Konfigurieren -->
                             <tabViewItem title="Konfigurieren" identifier="config_tab">
                                 <vbox margin="15">
                                     <!-- Titel-Zeile -->
@@ -94,18 +107,6 @@
                                             action="deleteTemplateAction:"/>
                                         </hbox>
                                     </vbox>
-                                </vbox>
-                            </tabViewItem>
-
-                            <!-- TAB 2: Anwenden -->
-                            <tabViewItem title="Anwenden" identifier="apply_tab">
-                                <vbox margin="15">
-                                    <label font="bold" margin="5">Eingabetext / Kontext für das LLM:</label>
-                                    <scrollView hasHorizontalScroller="NO">
-                                        <textView id="apply_input_text_view" editable="YES" font="System 12"/>
-                                    </scrollView>
-
-                                    <button id="run_llm_button" title="Ausführen" target="#CPOwner" action="runPromptAction:"/>
                                 </vbox>
                             </tabViewItem>
 

@@ -47022,7 +47022,7 @@ class_addMethods(the_class, [new objj_method(sel_getUid("initWithController:"), 
 
 ,["BOOL"])]);
 }
-p;8;CPView.jt;146450;@STATIC;1.0;I;20;Foundation/CPArray.jI;26;Foundation/CPObjJRuntime.jI;18;Foundation/CPSet.ji;17;_CPObject+Theme.ji;19;CGAffineTransform.ji;12;CGGeometry.ji;14;CPAppearance.ji;9;CPColor.ji;19;CPGraphicsContext.ji;13;CPResponder.ji;9;CPTheme.ji;16;CPTrackingArea.ji;20;CPWindow_Constants.ji;18;_CPDisplayServer.jt;146131;objj_executeFile("Foundation/CPArray.j", NO);objj_executeFile("Foundation/CPObjJRuntime.j", NO);objj_executeFile("Foundation/CPSet.j", NO);objj_executeFile("_CPObject+Theme.j", YES);objj_executeFile("CGAffineTransform.j", YES);objj_executeFile("CGGeometry.j", YES);objj_executeFile("CPAppearance.j", YES);objj_executeFile("CPColor.j", YES);objj_executeFile("CPGraphicsContext.j", YES);objj_executeFile("CPResponder.j", YES);objj_executeFile("CPTheme.j", YES);objj_executeFile("CPTrackingArea.j", YES);objj_executeFile("CPWindow_Constants.j", YES);objj_executeFile("_CPDisplayServer.j", YES);{var the_typedef = objj_allocateTypeDef("_CPViewFullScreenModeState");
+p;8;CPView.jt;147319;@STATIC;1.0;I;20;Foundation/CPArray.jI;26;Foundation/CPObjJRuntime.jI;18;Foundation/CPSet.ji;17;_CPObject+Theme.ji;19;CGAffineTransform.ji;12;CGGeometry.ji;14;CPAppearance.ji;9;CPColor.ji;19;CPGraphicsContext.ji;13;CPResponder.ji;9;CPTheme.ji;16;CPTrackingArea.ji;20;CPWindow_Constants.ji;18;_CPDisplayServer.jt;147000;objj_executeFile("Foundation/CPArray.j", NO);objj_executeFile("Foundation/CPObjJRuntime.j", NO);objj_executeFile("Foundation/CPSet.j", NO);objj_executeFile("_CPObject+Theme.j", YES);objj_executeFile("CGAffineTransform.j", YES);objj_executeFile("CGGeometry.j", YES);objj_executeFile("CPAppearance.j", YES);objj_executeFile("CPColor.j", YES);objj_executeFile("CPGraphicsContext.j", YES);objj_executeFile("CPResponder.j", YES);objj_executeFile("CPTheme.j", YES);objj_executeFile("CPTrackingArea.j", YES);objj_executeFile("CPWindow_Constants.j", YES);objj_executeFile("_CPDisplayServer.j", YES);{var the_typedef = objj_allocateTypeDef("_CPViewFullScreenModeState");
 objj_registerTypeDef(the_typedef);
 }CPViewNotSizable = 0;
 CPViewMinXMargin = 1;
@@ -47712,6 +47712,19 @@ class_addMethods(the_class, [new objj_method(sel_getUid("identifier"), function 
         origin.x *= size.width / frameSize.width;
         origin.y *= size.height / frameSize.height;
     }
+    var newScaleSize;
+    if (size && size.width !== 0 && size.height !== 0 && frameSize)
+        newScaleSize = CGSizeMake(frameSize.width / size.width, frameSize.height / size.height);
+    else
+        newScaleSize = CGSizeMake(1.0, 1.0);
+    if (!CGSizeEqualToSize(self._scaleSize, newScaleSize))
+    {
+        (self.isa.method_msgSend["willChangeValueForKey:"] || _objj_forward)(self, "willChangeValueForKey:", "scaleSize");
+        self._scaleSize = newScaleSize;
+        self._isScaled = self._scaleSize.width !== 1.0 || self._scaleSize.height !== 1.0;
+        (self.isa.method_msgSend["didChangeValueForKey:"] || _objj_forward)(self, "didChangeValueForKey:", "scaleSize");
+        (self.isa.method_msgSend["_scaleSizeUnitSquareToSize:"] || _objj_forward)(self, "_scaleSizeUnitSquareToSize:", CGSizeMake(1.0, 1.0));
+    }
     if (self._layer)
         ((___r1 = self._layer), ___r1 == null ? ___r1 : (___r1.isa.method_msgSend["_owningViewBoundsChanged"] || _objj_forward)(___r1, "_owningViewBoundsChanged"));
     if (self._postsBoundsChangedNotifications && !self._inhibitFrameAndBoundsChangedNotifications)
@@ -48224,7 +48237,7 @@ class_addMethods(the_class, [new objj_method(sel_getUid("identifier"), function 
 
 ,["void","CGSize"]), new objj_method(sel_getUid("_scaleSizeUnitSquareToSize:"), function $CPView___scaleSizeUnitSquareToSize_(self, _cmd, aSize)
 {
-    self._hierarchyScaleSize = CGSizeMakeCopy(((___r1 = self._superview), ___r1 == null ? ___r1 : (___r1.isa.method_msgSend["_hierarchyScaleSize"] || _objj_forward)(___r1, "_hierarchyScaleSize")));
+    self._hierarchyScaleSize = self._superview ? CGSizeMakeCopy(((___r1 = self._superview), ___r1 == null ? ___r1 : (___r1.isa.method_msgSend["_hierarchyScaleSize"] || _objj_forward)(___r1, "_hierarchyScaleSize"))) : CGSizeMake(1.0, 1.0);
     if (self._isScaled)
     {
         self._hierarchyScaleSize.width *= self._scaleSize.width;
@@ -52547,23 +52560,41 @@ class_addMethods(meta_class, [new objj_method(sel_getUid("group"), function $CAA
 
 ,["id"])]);
 }
-p;16;CABackingStore.jt;650;@STATIC;1.0;i;12;CGGeometry.jt;615;objj_executeFile("CGGeometry.j", YES);CABackingStoreGetContext = function(aBackingStore)
+p;16;CABackingStore.jt;1095;@STATIC;1.0;i;12;CGGeometry.ji;17;CPCompatibility.jt;1037;objj_executeFile("CGGeometry.j", YES);objj_executeFile("CPCompatibility.j", YES);CABackingStoreGetContext = function(aBackingStore)
 {
     return aBackingStore.context;
 }
-CABackingStoreCreate = function()
+;
+if (CPFeatureIsCompatible(CPHTMLCanvasFeature))
 {
-    const DOMElement = document.createElement("canvas");
-    DOMElement.style.position = "absolute";
-    return {context: DOMElement.getContext("2d"), buffer: DOMElement, _image: DOMElement};
+    CABackingStoreCreate =     function()
+    {
+        var DOMElement = document.createElement("canvas");
+        DOMElement.style.position = "absolute";
+        return {context: DOMElement.getContext("2d"), buffer: DOMElement, _image: DOMElement};
+    };
+    CABackingStoreSetSize =     function(aBackingStore, aSize)
+    {
+        var buffer = aBackingStore.buffer;
+        buffer.width = aSize.width;
+        buffer.height = aSize.height;
+        buffer.style.width = aSize.width + "px";
+;
+        buffer.style.height = aSize.height + "px";
+;
+    };
 }
-CABackingStoreSetSize = function(aBackingStore, aSize)
+else
 {
-    const buffer = aBackingStore.buffer;
-    buffer.width = aSize.width;
-    buffer.height = aSize.height;
-    buffer.style.width = aSize.width + "px";
-    buffer.style.height = aSize.height + "px";
+    CABackingStoreCreate =     function()
+    {
+        var context = CGBitmapGraphicsContextCreate();
+        context.buffer = "";
+        return {context: context};
+    };
+    CABackingStoreSetSize =     function(aBackingStore, aSize)
+    {
+    };
 }
 p;18;CABasicAnimation.jt;1629;@STATIC;1.0;I;21;Foundation/CPObject.ji;21;CAPropertyAnimation.jt;1558;objj_executeFile("Foundation/CPObject.j", NO);objj_executeFile("CAPropertyAnimation.j", YES);
 {var the_class = objj_allocateClassPair(CAPropertyAnimation, "CABasicAnimation"),
@@ -52723,7 +52754,7 @@ class_addMethods(the_class, [new objj_method(sel_getUid("values"), function $CAK
 
 ,["id"])]);
 }
-p;9;CALayer.jt;42270;@STATIC;1.0;I;21;Foundation/CPObject.jI;22;Foundation/CPRunLoop.ji;16;CABackingStore.ji;11;CGContext.ji;12;CGGeometry.ji;9;CPColor.ji;8;CPView.ji;23;CAMediaTimingFunction.jt;42090;objj_executeFile("Foundation/CPObject.j", NO);objj_executeFile("Foundation/CPRunLoop.j", NO);objj_executeFile("CABackingStore.j", YES);objj_executeFile("CGContext.j", YES);objj_executeFile("CGGeometry.j", YES);objj_executeFile("CPColor.j", YES);objj_executeFile("CPView.j", YES);objj_executeFile("CAMediaTimingFunction.j", YES);var CALayerGeometryBoundsMask = 1,
+p;9;CALayer.jt;42254;@STATIC;1.0;I;21;Foundation/CPObject.jI;22;Foundation/CPRunLoop.ji;16;CABackingStore.ji;11;CGContext.ji;12;CGGeometry.ji;9;CPColor.ji;8;CPView.ji;23;CAMediaTimingFunction.jt;42074;objj_executeFile("Foundation/CPObject.j", NO);objj_executeFile("Foundation/CPRunLoop.j", NO);objj_executeFile("CABackingStore.j", YES);objj_executeFile("CGContext.j", YES);objj_executeFile("CGGeometry.j", YES);objj_executeFile("CPColor.j", YES);objj_executeFile("CPView.j", YES);objj_executeFile("CAMediaTimingFunction.j", YES);var CALayerGeometryBoundsMask = 1,
     CALayerGeometryPositionMask = 2,
     CALayerGeometryAnchorPointMask = 4,
     CALayerGeometryAffineTransformMask = 8,
@@ -53055,6 +53086,7 @@ class_addMethods(the_class, [new objj_method(sel_getUid("init"), function $CALay
         (aLayer == null ? aLayer : (aLayer.isa.method_msgSend["removeFromSuperlayer"] || _objj_forward)(aLayer, "removeFromSuperlayer"));
     if (self._DOMContentsElement && aLayer._zPosition > self._DOMContentsElement.style.zIndex)
         self._DOMContentsElement.style.zIndex -= 100.0;
+;
     ((___r1 = self._sublayers), ___r1 == null ? ___r1 : (___r1.isa.method_msgSend["insertObject:atIndex:"] || _objj_forward)(___r1, "insertObject:atIndex:", aLayer, anIndex));
     aLayer._superlayer = self;
     if (self != superlayer)
@@ -53089,8 +53121,9 @@ class_addMethods(the_class, [new objj_method(sel_getUid("init"), function $CALay
     }
     if (self._DOMContentsElement && aLayer._zPosition > self._DOMContentsElement.style.zIndex)
         self._DOMContentsElement.style.zIndex -= 100.0;
+;
     ((___r1 = self._sublayers), ___r1 == null ? ___r1 : (___r1.isa.method_msgSend["replaceObjectAtIndex:withObject:"] || _objj_forward)(___r1, "replaceObjectAtIndex:withObject:", ((___r2 = self._sublayers), ___r2 == null ? ___r2 : (___r2.isa.method_msgSend["indexOfObjectIdenticalTo:"] || _objj_forward)(___r2, "indexOfObjectIdenticalTo:", aSublayer)), aLayer));
-    self._DOMElement.replaceChild(aLayer._DOMElement, aSublayer._DOMElement);
+    self._DOMElement.replaceChild(aSublayer._DOMElement, aLayer._DOMElement);
     var ___r1, ___r2;
 }
 
@@ -53442,8 +53475,8 @@ _CALayerRecalculateGeometry = function(aLayer, aGeometryChange)
     aLayer._standardBackingStoreFrame = (aLayer == null ? aLayer : (aLayer.isa.method_msgSend["convertRect:toLayer:"] || _objj_forward)(aLayer, "convertRect:toLayer:", bounds, nil));
     if (superlayer)
     {
-        var superlayerBounds = (superlayer == null ? superlayer : (superlayer.isa.method_msgSend["bounds"] || _objj_forward)(superlayer, "bounds")),
-            frame = (superlayer == null ? superlayer : (superlayer.isa.method_msgSend["convertRect:toLayer:"] || _objj_forward)(superlayer, "convertRect:toLayer:", superlayerBounds, nil));
+        var bounds = (superlayer == null ? superlayer : (superlayer.isa.method_msgSend["bounds"] || _objj_forward)(superlayer, "bounds")),
+            frame = (superlayer == null ? superlayer : (superlayer.isa.method_msgSend["convertRect:toLayer:"] || _objj_forward)(superlayer, "convertRect:toLayer:", bounds, nil));
         aLayer._standardBackingStoreFrame.origin.x -= CGRectGetMinX(frame);
         aLayer._standardBackingStoreFrame.origin.y -= CGRectGetMinY(frame);
     }

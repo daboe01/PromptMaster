@@ -124,7 +124,7 @@ get '/api/prompts/tree' => sub {
     my $c = shift;
     my $rows = eval {
         $c->pg->db->query(
-             "SELECT id, parent_id, title, prompt_text, output_format, template_name, sort_order, 
+            "SELECT id, parent_id, title, prompt_text, output_format, template_name, sort_order, is_expanded,
         (template_data IS NOT NULL) AS has_template
         FROM prompts
         ORDER BY parent_id NULLS FIRST, sort_order ASC, id ASC"
@@ -140,6 +140,7 @@ get '/api/prompts/tree' => sub {
 
     for my $row (@$rows) {
         $row->{children} = [];
+        $row->{is_expanded} = ($row->{is_expanded} && $row->{is_expanded} ne 'f') ? Mojo::JSON->true : Mojo::JSON->false;
         $by_id{$row->{id}} = $row;
     }
 
@@ -161,11 +162,12 @@ get '/api/prompts/:id' => sub {
     my $c = shift;
     my $id = $c->param('id');
     my $row = $c->pg->db->query(
-         "SELECT id, parent_id, title, prompt_text, output_format, template_name, sort_order,
+        "SELECT id, parent_id, title, prompt_text, output_format, template_name, sort_order, is_expanded,
     (template_data IS NOT NULL) AS has_template
     FROM prompts WHERE id = ?", $id
     )->hash;
     return $c->render(json => { error => 'Prompt not found' }, status => 404) unless $row;
+    $row->{is_expanded} = ($row->{is_expanded} && $row->{is_expanded} ne 'f') ? Mojo::JSON->true : Mojo::JSON->false;
     $c->render(json => $row);
 };
 
@@ -173,10 +175,11 @@ post '/api/prompts' => sub {
     my $c = shift;
     my $payload = $c->req->json // {};
 
-    my $parent_id = $payload->{parent_id};
-    my $title     = $payload->{title} // 'Neuer Prompt';
-    my $prompt    = $payload->{prompt_text} // '';
-    my $format    = $payload->{output_format} // 'markdown';
+    my $parent_id   = $payload->{parent_id};
+    my $title       = $payload->{title} // 'Neuer Prompt';
+    my $prompt      = $payload->{prompt_text} // '';
+    my $format      = $payload->{output_format} // 'markdown';
+    my $is_expanded = exists $payload->{is_expanded} ? ($payload->{is_expanded} ? 1 : 0) : 1;
 
     my $max_order = $c->pg->db->query(
     "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM prompts WHERE parent_id IS NOT DISTINCT FROM ?",
@@ -184,9 +187,9 @@ post '/api/prompts' => sub {
     )->hash->{next_order};
 
     my $new_id = $c->pg->db->query(
-         "INSERT INTO prompts (parent_id, title, prompt_text, output_format, sort_order) 
-    VALUES (?, ?, ?, ?, ?) RETURNING id",
-    $parent_id, $title, $prompt, $format, $max_order
+        "INSERT INTO prompts (parent_id, title, prompt_text, output_format, sort_order, is_expanded) 
+    VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+    $parent_id, $title, $prompt, $format, $max_order, $is_expanded
     )->hash->{id};
 
     $c->render(json => { id => $new_id, success => 1 });
@@ -200,10 +203,14 @@ put '/api/prompts/:id' => sub {
     my @fields;
     my @values;
 
-    for my $k (qw(title prompt_text output_format parent_id sort_order)) {
+    for my $k (qw(title prompt_text output_format parent_id sort_order is_expanded)) {
         if (exists $payload->{$k}) {
             push @fields, "$k = ?";
-            push @values, $payload->{$k};
+            if ($k eq 'is_expanded') {
+                push @values, $payload->{$k} ? 1 : 0;
+            } else {
+                push @values, $payload->{$k};
+            }
         }
     }
 
@@ -227,7 +234,7 @@ post '/api/prompts/reorder' => sub {
     my $c = shift;
     my $payload   = $c->req->json // {};
     my $node_id   = $payload->{id};
-    my $parent_id = $payload->{parent_id}; # undef when moved to root
+    my $parent_id = $payload->{parent_id};
     my $new_index = $payload->{index} // 0;
 
     return $c->render(json => { error => 'Missing id' }, status => 400) unless defined $node_id;
@@ -235,30 +242,25 @@ post '/api/prompts/reorder' => sub {
     my $db = $c->pg->db;
     my $tx = $db->begin;
 
-    # 1. Fetch all sibling IDs under target parent ordered by sort_order
     my $siblings = $db->query(
-         "SELECT id FROM prompts 
+        "SELECT id FROM prompts 
     WHERE parent_id IS NOT DISTINCT FROM ?
     ORDER BY sort_order ASC, id ASC",
     $parent_id
     )->hashes->to_array;
 
     my @sibling_ids = map { $_->{id} } @$siblings;
-
-    # 2. Remove the dragged node if it is already in this sibling list
     @sibling_ids = grep { $_ != $node_id } @sibling_ids;
 
-    # 3. Clamp target index and insert the dragged node at the exact position
     $new_index = 0 if $new_index < 0;
     $new_index = scalar(@sibling_ids) if $new_index > scalar(@sibling_ids);
     splice(@sibling_ids, $new_index, 0, $node_id);
 
-    # 4. Normalize and update all siblings with clean sequential sort_orders
     for my $order (0 .. $#sibling_ids) {
         $db->query(
-                    "UPDATE prompts SET parent_id = ?, sort_order = ? WHERE id = ?",
-                    $parent_id, $order, $sibling_ids[$order]
-                    );
+        "UPDATE prompts SET parent_id = ?, sort_order = ? WHERE id = ?",
+        $parent_id, $order, $sibling_ids[$order]
+        );
     }
 
     $tx->commit;
@@ -301,7 +303,7 @@ get '/api/prompts/:id/download_template' => sub {
 };
 
 # =========================================================
-# LLM EXECUTION ROUTE (MIT OLLAMA LOCALHOST / MLX SUPPORT & LATEX)
+# LLM EXECUTION ROUTE
 # =========================================================
 post '/api/prompts/run' => sub {
     my $c = shift;
@@ -318,7 +320,6 @@ post '/api/prompts/run' => sub {
     my $system_or_template = $prompt_row->{prompt_text} // '';
     my $output_format      = $prompt_row->{output_format} // 'markdown';
 
-    # Basis-Prompt aufbauen
     my $final_prompt;
     if ($system_or_template =~ /\{INPUT\}/i) {
         ($final_prompt = $system_or_template) =~ s/\{INPUT\}/$user_input/g;
@@ -326,9 +327,6 @@ post '/api/prompts/run' => sub {
         $final_prompt = $system_or_template . "\n\n" . $user_input;
     }
 
-    # ---------------------------------------------------------
-    # PDF_FILL: Felder auslesen & in den Prompt injizieren
-    # ---------------------------------------------------------
     my $tpl_bytes = $prompt_row->{template_data};
     if ($output_format eq 'pdf_fill') {
         if (!$tpl_bytes) {
@@ -366,9 +364,6 @@ post '/api/prompts/run' => sub {
             }
             Gib KEINEN einleitenden Text und keine Erklärungen außerhalb des JSON-Objekts aus!};
     }
-    # ---------------------------------------------------------
-    # LATEX: System-Anweisung für vollständigen LaTeX-Code
-    # ---------------------------------------------------------
     elsif ($output_format eq 'latex') {
         $final_prompt = qq{Du bist ein professioneller LaTeX-Setzer.
             Erstelle ein vollständiges, fehlerfrei kompilierbares LaTeX-Dokument basierend auf der folgenden Anweisung und dem Eingabetext.
@@ -389,9 +384,6 @@ post '/api/prompts/run' => sub {
             $final_prompt};
     }
 
-    # =========================================================
-    # ENDPUNKT-ROUTING (MLX -> Localhost Ollama / Sonst vLLM)
-    # =========================================================
     my $target_endpoint;
     my %headers = ('Content-Type' => 'application/json');
 
@@ -426,22 +418,15 @@ post '/api/prompts/run' => sub {
 
         my $content = $tx->result->json('/choices/0/message/content') // '';
 
-        # ---------------------------------------------------------
-        # FORMAT: MARKDOWN
-        # ---------------------------------------------------------
         if ($output_format eq 'markdown') {
             return $c->render(json => {
                 type    => 'markdown',
                 content => $content
             });
         }
-        # ---------------------------------------------------------
-        # FORMAT: LATEX -> PDF KOMPILIERUNG
-        # ---------------------------------------------------------
         elsif ($output_format eq 'latex') {
             my $latex_code = $content;
 
-            # 1. LaTeX-Dokumentbereich isolieren (falls LLM doch Markdown drumherum gelegt hat)
             if ($latex_code =~ /(\\documentclass[\s\S]*?\\end\{document\})/i) {
                 $latex_code = $1;
             } else {
@@ -456,11 +441,9 @@ post '/api/prompts/run' => sub {
 
             Mojo::File->new($tex_path)->spurt(encode('UTF-8', $latex_code));
 
-            # 2. pdflatex 2-mal im Nonstop-Modus ausführen (für Layout/Seitenumbrüche)
             system("pdflatex -interaction=nonstopmode -output-directory=\"$tempdir\" \"$tex_path\" > /dev/null 2>&1");
             system("pdflatex -interaction=nonstopmode -output-directory=\"$tempdir\" \"$tex_path\" > /dev/null 2>&1");
 
-            # 3. PDF erfolgreich erzeugt -> Base64-Download zurückliefern
             if (-e $pdf_path && -s $pdf_path) {
                 my $pdf_bytes = Mojo::File->new($pdf_path)->slurp;
                 my $clean_title = $prompt_row->{title} // 'dokument';
@@ -473,9 +456,7 @@ post '/api/prompts/run' => sub {
                     mime        => 'application/pdf',
                     base64_data => b64_encode($pdf_bytes, '')
                 });
-            }
-            # 4. Fehler bei Kompilierung -> Fehlerdiagnose aus Log extrahieren & anzeigen
-            else {
+            } else {
                 my $log_text = (-e $log_path) ? decode('UTF-8', Mojo::File->new($log_path)->slurp) : 'Keine Log-Datei generiert.';
                 my @errors = grep { /^!/ } split /\r?\n/, $log_text;
                 my $err_snippet = @errors ? join("\n", @errors[0 .. ($#errors > 5 ? 5 : $#errors)]) : 'pdflatex konnte kein PDF erzeugen.';
@@ -488,9 +469,6 @@ post '/api/prompts/run' => sub {
                 });
             }
         }
-        # ---------------------------------------------------------
-        # FORMAT: PDF_FILL (FORMULAR)
-        # ---------------------------------------------------------
         elsif ($output_format eq 'pdf_fill') {
             my $json_str = $content;
             $json_str =~ s/^```(?:json)?\s*//gmi;
