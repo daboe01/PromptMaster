@@ -51,7 +51,7 @@ Die Anwendung kombiniert ein Desktop-artiges **Cappuccino-/Objective-J-Frontend*
 ### 1. Repository klonen
 
 ```bash
-git clone https://github.com/DEIN_NUTZERNAME/promptmaster.git
+git clone https://github.com/daboe01/promptmaster.git
 cd promptmaster
 ```
 
