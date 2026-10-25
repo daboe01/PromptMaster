@@ -40,12 +40,26 @@
                             <!-- TAB 1: Anwenden -->
                             <tabViewItem title="Anwenden" identifier="apply_tab">
                                 <vbox margin="15">
-                                    <label font="bold" margin="5">Eingabetext / Kontext für das LLM:</label>
+                                    <label font="bold" margin="5">Eingabetext / Kontext für das LLM (PDFs können hierher gezogen werden):</label>
                                     <scrollView hasHorizontalScroller="NO">
                                         <textView id="apply_input_text_view" editable="YES" font="System 12"/>
                                     </scrollView>
 
-                                    <button id="run_llm_button" title="Ausführen" target="#CPOwner" action="runPromptAction:"/>
+                                    <hbox height="40">
+                                        <hspace/>
+                                        <button id="run_llm_button"
+                                        title="⚡ Prompt durch LLM ausführen"
+                                        width="260"
+                                        target="#CPOwner"
+                                        action="runPromptAction:"/>
+                                        <hspace width="10"/>
+                                        <button id="copy_full_prompt_btn"
+                                        title="📋 Kompletten Prompt kopieren"
+                                        width="240"
+                                        target="#CPOwner"
+                                        action="copyFullPromptAction:"/>
+                                        <hspace/>
+                                    </hbox>
                                 </vbox>
                             </tabViewItem>
 
@@ -132,5 +146,6 @@
         <outlet source="CPOwner" target="delete_template_btn" label="_deleteTemplateBtn"/>
         <outlet source="CPOwner" target="apply_input_text_view" label="_applyInputTextView"/>
         <outlet source="CPOwner" target="run_llm_button" label="_runButton"/>
+        <outlet source="CPOwner" target="copy_full_prompt_btn" label="_copyPromptBtn"/>
     </connectors>
 </gsmarkup>

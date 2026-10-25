@@ -213,6 +213,9 @@ var PromptDragType = @"PromptTreeNodeDragType";
     // Tab 2: Anwenden
     CPTextView        _applyInputTextView;
     CPButton          _runButton;
+    CPButton          _copyPromptBtn;
+    id                _pdfDropOverlay;
+    BOOL              _isParsingPdf;
 
     // Popover für Ausgabe
     CPPopover         _markdownPopover;
@@ -220,6 +223,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
     CPTextView        _popoverRichTextView;
     CPTextView        _popoverMarkdownTextView;
     CPString          _currentOutputMarkdown;
+    CPButton          _popoverCopyBtn;
 
     // State
     CPString          selectedModel @accessors;
@@ -237,7 +241,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
     _isLoadingTree = NO;
     _autoSaveTimer = nil;
     _currentOutputMarkdown = @"";
-    [self setSelectedModel:@"gemma4:26b-mlx"];
+    [self setSelectedModel:@"gpt-oss-120b"];
 
     treeController = [[CPTreeController alloc] init];
     [treeController setChildrenKeyPath:@"children"];
@@ -291,6 +295,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
                                                object:_promptTextView];
 
     [self setupUploadButtonDragAndDrop];
+    [self setupInputTextViewPdfDrop];
 
     if (_runButton)
     {
@@ -608,6 +613,196 @@ var PromptDragType = @"PromptTreeNodeDragType";
             });
         }
     }, 200);
+}
+
+// --------------------------------------------------------------------------------
+// PDF-Drop auf das Eingabefeld (Parsing via MinerU im Backend)
+// --------------------------------------------------------------------------------
+
+- (void)setupInputTextViewPdfDrop
+{
+    setTimeout(function() {
+        if (!_applyInputTextView) return;
+
+        var targetView = [_applyInputTextView enclosingScrollView] || _applyInputTextView;
+        var domElement = targetView._DOMElement;
+        if (!domElement) return;
+
+        var overlay = document.createElement("div");
+        overlay.style.position = "absolute";
+        overlay.style.left = "0";
+        overlay.style.top = "0";
+        overlay.style.right = "0";
+        overlay.style.bottom = "0";
+        overlay.style.display = "none";
+        overlay.style.alignItems = "center";
+        overlay.style.justifyContent = "center";
+        overlay.style.textAlign = "center";
+        overlay.style.padding = "20px";
+        overlay.style.boxSizing = "border-box";
+        overlay.style.border = "2px dashed #0076FF";
+        overlay.style.backgroundColor = "rgba(230, 240, 255, 0.92)";
+        overlay.style.color = "#0050B3";
+        overlay.style.font = "bold 15px -apple-system, 'Helvetica Neue', Arial, sans-serif";
+        overlay.style.pointerEvents = "none";
+        overlay.style.zIndex = "1000";
+        domElement.appendChild(overlay);
+        _pdfDropOverlay = overlay;
+
+        var dragCounter = 0;
+
+        var hasFiles = function(e) {
+            var types = e.dataTransfer ? e.dataTransfer.types : null;
+            if (!types) return false;
+            for (var i = 0; i < types.length; i++) {
+                if (types[i] === "Files") return true;
+            }
+            return false;
+        };
+
+        domElement.addEventListener("dragenter", function(e) {
+            if (!hasFiles(e) || _isParsingPdf) return;
+            e.preventDefault();
+            dragCounter++;
+            if (dragCounter === 1)
+                [self _showPdfOverlay:@"📄 PDF hier ablegen – Text wird automatisch extrahiert"];
+        }, true);
+
+        domElement.addEventListener("dragover", function(e) {
+            if (!hasFiles(e) || _isParsingPdf) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+        }, true);
+
+        domElement.addEventListener("dragleave", function(e) {
+            if (!hasFiles(e) || _isParsingPdf) return;
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                [self _hidePdfOverlay];
+            }
+        }, true);
+
+        domElement.addEventListener("drop", function(e) {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragCounter = 0;
+
+            if (_isParsingPdf) return;
+            [self _hidePdfOverlay];
+
+            var pdfs = [];
+            var files = e.dataTransfer.files;
+            for (var i = 0; files && i < files.length; i++) {
+                var f = files[i];
+                if (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"))
+                    pdfs.push(f);
+            }
+
+            if (pdfs.length === 0) {
+                alert("Bitte nur PDF-Dateien auf das Eingabefeld ziehen.");
+                return;
+            }
+
+            [self parseDroppedPdfs:pdfs];
+        }, true);
+    }, 200);
+}
+
+- (void)_showPdfOverlay:(CPString)text
+{
+    if (!_pdfDropOverlay) return;
+    _pdfDropOverlay.textContent = text;
+    _pdfDropOverlay.style.display = "flex";
+}
+
+- (void)_hidePdfOverlay
+{
+    if (!_pdfDropOverlay) return;
+    _pdfDropOverlay.style.display = "none";
+}
+
+- (void)parseDroppedPdfs:(JSObject)pdfFiles
+{
+    _isParsingPdf = YES;
+    [_applyInputTextView setEditable:NO];
+    [_runButton setEnabled:NO];
+    [_copyPromptBtn setEnabled:NO];
+
+    var results = [];
+    var index = 0;
+
+    var finish = function(errorMessage) {
+        _isParsingPdf = NO;
+        [self _hidePdfOverlay];
+        [_applyInputTextView setEditable:YES];
+        [_runButton setEnabled:YES];
+        [_copyPromptBtn setEnabled:YES];
+
+        if (results.length > 0)
+            [self _insertParsedPdfTexts:results];
+
+        if (errorMessage)
+            alert(errorMessage);
+
+        [[CPRunLoop currentRunLoop] limitDateForMode:CPDefaultRunLoopMode];
+    };
+
+    var next = function() {
+        if (index >= pdfFiles.length) {
+            finish(nil);
+            return;
+        }
+
+        var file = pdfFiles[index];
+        var counterText = pdfFiles.length > 1 ? " (" + (index + 1) + "/" + pdfFiles.length + ")" : "";
+        [self _showPdfOverlay:@"⏳ " + file.name + counterText + " wird mit MinerU geparst …"];
+
+        var formData = new FormData();
+        formData.append('file', file);
+
+        fetch('/api/parse_pdf', { method: 'POST', body: formData })
+        .then(function(response) {
+            return response.json().catch(function() {
+                throw new Error("HTTP Status " + response.status);
+            });
+        })
+        .then(function(data) {
+            if (!data || !data.success)
+                throw new Error((data && data.error) || "Unbekannter Fehler");
+
+            results.push({ name: file.name, text: data.markdown || "" });
+            index++;
+            next();
+        })
+        .catch(function(error) {
+            finish("Fehler beim Parsen von '" + file.name + "': " + error.message);
+        });
+    };
+
+    next();
+}
+
+- (void)_insertParsedPdfTexts:(JSObject)results
+{
+    var parts = [];
+    for (var i = 0; i < results.length; i++) {
+        var text = (results[i].text || "").replace(/^\s+|\s+$/g, "");
+        if (results.length > 1)
+            parts.push("===== " + results[i].name + " =====\n\n" + text);
+        else
+            parts.push(text);
+    }
+
+    var newText = parts.join("\n\n");
+    var existing = [_applyInputTextView string] || @"";
+
+    if (existing.replace(/\s+/g, "").length > 0)
+        newText = existing.replace(/\s+$/, "") + "\n\n" + newText;
+
+    [_applyInputTextView setString:newText];
+    [_applyInputTextView scrollRangeToVisible:CPMakeRange(0, 0)];
 }
 
 // --------------------------------------------------------------------------------
@@ -1178,6 +1373,73 @@ var PromptDragType = @"PromptTreeNodeDragType";
 }
 
 // --------------------------------------------------------------------------------
+// Kompletten Prompt (inkl. Payload) kopieren – z.B. für Frontier-Modelle im Web
+// --------------------------------------------------------------------------------
+
+- (CPString)buildFullPromptForNode:(PromptNode)node input:(CPString)inputText
+{
+    var template = [node prompt_text] || @"";
+
+    if (template.indexOf("{INPUT}") !== -1)
+        return template.split("{INPUT}").join(inputText);
+
+    // Kein Platzhalter vorhanden -> Eingabe anhängen
+    return template + "\n\n" + inputText;
+}
+
+- (void)copyFullPromptAction:(id)sender
+{
+    [self flushActiveEditsToCurrentNode];
+
+    if (!_activeSelectedNode) {
+        alert("Bitte wählen Sie links im Baum zuerst einen Prompt aus.");
+        return;
+    }
+
+    var inputText = [_applyInputTextView string] || @"";
+    if ([inputText length] === 0) {
+        if (!confirm("Das Eingabefeld ist leer. Trotzdem nur den Prompt kopieren?"))
+            return;
+    }
+
+    var fullPrompt = [self buildFullPromptForNode:_activeSelectedNode input:inputText];
+    var btn = _copyPromptBtn;
+
+    [self _copyTextToClipboard:fullPrompt completion:function(success) {
+        [btn setTitle:success ? @"✓ Prompt kopiert!" : @"Kopieren fehlgeschlagen"];
+        setTimeout(function() {
+            [btn setTitle:@"📋 Kompletten Prompt kopieren"];
+            [[CPRunLoop currentRunLoop] limitDateForMode:CPDefaultRunLoopMode];
+        }, 1500);
+        [[CPRunLoop currentRunLoop] limitDateForMode:CPDefaultRunLoopMode];
+    }];
+}
+
+- (void)_copyTextToClipboard:(CPString)text completion:(Function)done
+{
+    // 1. Synchron im Klick-Handler kopieren. Nur hier ist die "User Activation"
+    //    garantiert gültig – in einem Promise-Callback (nach writeText-Fehler)
+    //    scheitert execCommand("copy") still und die Zwischenablage bleibt alt.
+    if ([self _legacyCopyText:text])
+    {
+        done(YES);
+        return;
+    }
+
+    // 2. Fallback: Async Clipboard API (nur HTTPS / localhost)
+    if (navigator.clipboard && window.isSecureContext)
+    {
+        navigator.clipboard.writeText(text).then(
+            function() { done(YES); },
+            function() { done(NO); }
+        );
+        return;
+    }
+
+    done(NO);
+}
+
+// --------------------------------------------------------------------------------
 // Ergebnis Popover
 // --------------------------------------------------------------------------------
 
@@ -1236,6 +1498,7 @@ var PromptDragType = @"PromptTreeNodeDragType";
         [copyBtn setTarget:self];
         [copyBtn setAction:@selector(copyMarkdownToClipboard:)];
         [container addSubview:copyBtn];
+        _popoverCopyBtn = copyBtn;
 
         var vc = [[CPViewController alloc] init];
         [vc setView:container];
@@ -1255,13 +1518,72 @@ var PromptDragType = @"PromptTreeNodeDragType";
 - (void)copyMarkdownToClipboard:(id)sender
 {
     var text = _currentOutputMarkdown;
-    if (!text || [text length] === 0) {
-        text = [_popoverMarkdownTextView string];
+    if (!text || [text length] === 0)
+        text = [_popoverMarkdownTextView string] || @"";
+
+    // Remove the caret from the text view (it is still first responder)
+    var win = [_popoverMarkdownTextView window];
+    if (win)
+        [win makeFirstResponder:nil];
+
+    [self _copyTextToClipboard:text completion:function(success) {
+        [_popoverCopyBtn setTitle:success ? @"✓ Kopiert!" : @"Kopieren fehlgeschlagen"];
+        setTimeout(function() {
+            [_popoverCopyBtn setTitle:@"Markdown kopieren"];
+            [[CPRunLoop currentRunLoop] limitDateForMode:CPDefaultRunLoopMode];
+        }, 1500);
+        [[CPRunLoop currentRunLoop] limitDateForMode:CPDefaultRunLoopMode];
+    }];
+}
+
+- (BOOL)_legacyCopyText:(CPString)text
+{
+    var activeEl = document.activeElement;
+
+    // Den nativen "copy"-Event in der Capture-Phase abfangen und den Inhalt
+    // explizit setzen. So kann weder Cappuccinos eigenes Pasteboard-Handling
+    // noch der aktuelle First Responder (z.B. ein anderes TextView) den
+    // Inhalt der Zwischenablage überschreiben.
+    var handled = NO;
+    var onCopy = function(e) {
+        if (e.clipboardData)
+        {
+            e.clipboardData.setData("text/plain", text);
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            handled = YES;
+        }
+    };
+    window.addEventListener("copy", onCopy, true);
+
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+
+    var ok = NO;
+    try {
+        ok = document.execCommand("copy") ? YES : NO;
+    } catch (e) {
+        console.error("Copy fallback failed:", e);
     }
 
-    navigator.clipboard.writeText(text).then(function() {
-        alert("Markdown erfolgreich in die Zwischenablage kopiert!");
-    });
+    window.removeEventListener("copy", onCopy, true);
+    document.body.removeChild(ta);
+
+    // Give focus back to Cappuccino's hidden input element
+    if (activeEl && activeEl.focus)
+        activeEl.focus();
+
+    return ok;
 }
 
 @end

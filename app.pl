@@ -1,3 +1,9 @@
+#
+# PromptMaster backend
+# (C) 2026 Daniel Boehringer
+# TODO: RTF-output
+#
+
 #!/usr/bin/env perl
 use utf8;
 use Mojolicious::Lite;
@@ -13,6 +19,7 @@ use POSIX qw(strftime);
 use Encode qw(encode decode);
 use Data::Dumper;
 
+
 # =========================================================
 # KONFIGURATION & DATENBANK
 # =========================================================
@@ -23,11 +30,25 @@ helper pg => sub {
 
 # Remote vLLM Konfiguration
 my $vllm_endpoint   = $ENV{VLLM_ENDPOINT}   // 'https://inference-api.aipier.kn.uniklinik-freiburg.de/v1/chat/completions';
-my $vllm_api_key    = $ENV{VLLM_API_KEY}    // 'ap-yf';
+my $vllm_api_key    = $ENV{VLLM_API_KEY}    // 'ap-';
 my $default_model   = $ENV{VLLM_MODEL}      // 'gpt-oss-120b';
 
 # Lokale Ollama Konfiguration (OpenAI-kompatibler Endpunkt)
-my $ollama_endpoint = $ENV{OLLAMA_ENDPOINT} // 'http://localhost:11434/v1/chat/completions';
+my $ollama_endpoint = $ENV{OLLAMA_ENDPOINT} // 'http://10.210.21.203:11434/v1/chat/completions';
+
+# MinerU PDF-Parser (PDF -> Markdown inkl. OCR)
+my $mineru_endpoint = $ENV{MINERU_ENDPOINT} // 'http://10.210.21.201:8008/file_parse';
+
+# LaTeX-Assets (Briefköpfe, Logos ...) für pdflatex, Ordner neben backend.pl.
+# Einmal beim Start absolut auflösen, damit es unabhängig vom Arbeitsverzeichnis ist.
+my $latex_assets_dir = $ENV{LATEX_ASSETS_DIR} // app->home->child('latex_assets')->to_abs->to_string;
+app->log->warn("LaTeX-Asset-Ordner '$latex_assets_dir' existiert nicht") unless -d $latex_assets_dir;
+
+# Größere Uploads erlauben (Mojolicious-Default sind 16 MB)
+app->hook(after_build_tx => sub {
+          my ($tx, $app) = @_;
+          $tx->req->max_message_size(200 * 1024 * 1024);
+});
 
 # UserAgent mit 3600 Sekunden (1 Stunde) Timeout
 my $ua = Mojo::UserAgent->new(
@@ -115,6 +136,63 @@ sub generate_xfdf {
     $xml .= qq{  </fields>\n};
     $xml .= qq{</xfdf>\n};
     return $xml;
+}
+
+# =========================================================
+# HELPER FÜR MINERU (PDF -> MARKDOWN)
+# =========================================================
+
+sub extract_mineru_markdown {
+    my ($res_data) = @_;
+    my $text_content = '';
+
+    # 1. Spezifischer Pfad für das MinerU-Format: results -> {document_key} -> md_content
+    if (ref $res_data eq 'HASH' && ref $res_data->{results} eq 'HASH') {
+        foreach my $file_key (keys %{ $res_data->{results} }) {
+            my $file_obj = $res_data->{results}->{$file_key};
+            if (ref $file_obj eq 'HASH' && defined $file_obj->{md_content}) {
+                $text_content = $file_obj->{md_content};
+                last;
+            }
+        }
+    }
+
+    # 2. Generische Fallback-Parser (falls MinerU ein anderes Format liefert)
+    if (!$text_content || $text_content eq '') {
+        if (ref $res_data eq 'ARRAY') {
+            my $first = $res_data->[0];
+            if (ref $first eq 'HASH') {
+                $text_content = $first->{markdown} // $first->{md} // $first->{content} // '';
+            }
+        }
+        elsif (ref $res_data eq 'HASH') {
+            if (exists $res_data->{markdown}) {
+                $text_content = $res_data->{markdown};
+            }
+            elsif (ref $res_data->{data} eq 'HASH' && exists $res_data->{data}->{markdown}) {
+                $text_content = $res_data->{data}->{markdown};
+            }
+            elsif (ref $res_data->{result} eq 'HASH' && exists $res_data->{result}->{markdown}) {
+                $text_content = $res_data->{result}->{markdown};
+            }
+            elsif (ref $res_data->{results} eq 'ARRAY') {
+                my $first = $res_data->{results}->[0];
+                if (ref $first eq 'HASH') {
+                    $text_content = $first->{markdown} // $first->{md} // $first->{content} // '';
+                }
+            }
+            else {
+                foreach my $k (keys %$res_data) {
+                    if ($k =~ /md|markdown|text|content/i && !ref $res_data->{$k}) {
+                        $text_content = $res_data->{$k};
+                        last;
+                    }
+                }
+            }
+        }
+    }
+
+    return $text_content // '';
 }
 
 # =========================================================
@@ -303,6 +381,65 @@ get '/api/prompts/:id/download_template' => sub {
 };
 
 # =========================================================
+# PDF -> TEXT (MINERU) FÜR DAS EINGABEFELD
+# =========================================================
+post '/api/parse_pdf' => sub {
+    my $c = shift;
+    $c->inactivity_timeout(3600);
+
+    my $upload = $c->req->upload('file');
+    return $c->render(json => { success => 0, error => 'Keine Datei hochgeladen' }, status => 400) unless $upload;
+
+    my $pdf_data = $upload->slurp;
+    my $filename = $upload->filename // 'document.pdf';
+
+    unless ($pdf_data && length($pdf_data) > 500) {
+        return $c->render(json => { success => 0, error => 'PDF ist leer oder zu klein' }, status => 400);
+    }
+
+    $c->app->log->info(">>> [MINERU] Parse '$filename' (" . length($pdf_data) . " Bytes)");
+
+    my $miner_ua = Mojo::UserAgent->new(
+                                        request_timeout    => 900,
+                                        inactivity_timeout => 900,
+                                        connect_timeout    => 30
+                                        );
+
+    $c->render_later;
+
+    $miner_ua->post_p($mineru_endpoint => form => {
+        files     => { content => $pdf_data, filename => 'document.pdf', 'Content-Type' => 'application/pdf' },
+        backend   => 'pipeline',
+        return_md => 'true'
+    })->then(sub {
+        my $tx = shift;
+        undef $miner_ua;
+
+        unless ($tx->result && $tx->result->is_success) {
+            my $err_msg = $tx->error ? $tx->error->{message} : 'HTTP Status ' . ($tx->res ? $tx->res->code : 'Unknown');
+            die "MinerU-Anfrage fehlgeschlagen: $err_msg\n";
+        }
+
+        my $res_data = eval { decode_json($tx->result->body) };
+        die "MinerU lieferte kein gültiges JSON\n" unless $res_data;
+
+        my $text_content = extract_mineru_markdown($res_data);
+        die "MinerU lieferte keinen Text zurück\n" unless length($text_content // '');
+
+        $c->render(json => {
+            success  => 1,
+            filename => $filename,
+            markdown => $text_content
+        });
+    })->catch(sub {
+        my $err = shift;
+        undef $miner_ua;
+        $c->app->log->error(">>> [MINERU] $err");
+        $c->render(json => { success => 0, error => "$err" }, status => 502);
+    });
+};
+
+# =========================================================
 # LLM EXECUTION ROUTE
 # =========================================================
 post '/api/prompts/run' => sub {
@@ -365,16 +502,21 @@ post '/api/prompts/run' => sub {
             Gib KEINEN einleitenden Text und keine Erklärungen außerhalb des JSON-Objekts aus!};
     }
     elsif ($output_format eq 'latex') {
-        $final_prompt = qq{Du bist ein professioneller LaTeX-Setzer.
-            Erstelle ein vollständiges, fehlerfrei kompilierbares LaTeX-Dokument basierend auf der folgenden Anweisung und dem Eingabetext.
-
-        Verwende:
+        # Bringt der Prompt eine eigene Vorlage mit (\documentclass), keine Standard-Präambel erzwingen
+        my $preamble_hint = ($system_or_template =~ /\\documentclass/)
+            ? "Verwende exakt die im Prompt vorgegebene LaTeX-Vorlage inklusive Präambel (Dokumentklasse, Pakete, Briefkopf) und ändere die Präambel nicht."
+            : qq{Verwende:
             - \\documentclass[11pt,a4paper]{article}
             - \\usepackage[utf8]{inputenc}
             - \\usepackage[T1]{fontenc}
             - \\usepackage[ngerman]{babel}
             - \\usepackage[margin=2.5cm]{geometry}
-            - \\usepackage{amsmath,amssymb,graphicx,hyperref,booktabs,microtype}
+            - \\usepackage{amsmath,amssymb,graphicx,hyperref,booktabs,microtype}};
+
+        $final_prompt = qq{Du bist ein professioneller LaTeX-Setzer.
+            Erstelle ein vollständiges, fehlerfrei kompilierbares LaTeX-Dokument basierend auf der folgenden Anweisung und dem Eingabetext.
+
+            $preamble_hint
 
             WICHTIGE ANWEISUNG:
             Antworte AUSSCHLIESSLICH mit dem reinen LaTeX-Dokument (beginnend mit \\documentclass und endend mit \\end{document}).
@@ -434,6 +576,15 @@ post '/api/prompts/run' => sub {
                 $latex_code =~ s/\s*```$//gmi;
             }
 
+            # Zeichen, die pdflatex mit inputenc nicht kennt (gpt-oss gibt sie gern aus)
+            $latex_code =~ s/\x{202F}/\\,/g;                  # schmales geschütztes Leerzeichen
+            $latex_code =~ s/\x{00A0}/~/g;                      # geschütztes Leerzeichen
+            $latex_code =~ s/[\x{2011}\x{2010}]/-/g;           # geschützter Bindestrich / Bindestrich
+            $latex_code =~ s/[\x{200B}\x{200C}\x{200D}\x{2060}\x{FEFF}\x{00AD}]//g;  # unsichtbare Zeichen
+
+            # Nicht ersetzte Platzhalter <<...>> sichtbar als fehlend markieren
+            $latex_code =~ s{<<\s*([^<>]+?)\s*>>}{ my $n = $1; $n =~ s/_/ /g; "\\textbf{[FEHLT: $n]}" }ge;
+
             my $tempdir  = tempdir(CLEANUP => 1);
             my $tex_path = "$tempdir/document.tex";
             my $pdf_path = "$tempdir/document.pdf";
@@ -441,8 +592,13 @@ post '/api/prompts/run' => sub {
 
             Mojo::File->new($tex_path)->spurt(encode('UTF-8', $latex_code));
 
-            system("pdflatex -interaction=nonstopmode -output-directory=\"$tempdir\" \"$tex_path\" > /dev/null 2>&1");
-            system("pdflatex -interaction=nonstopmode -output-directory=\"$tempdir\" \"$tex_path\" > /dev/null 2>&1");
+            {
+                # Suchpfad: Asset-Ordner, Temp-Ordner, danach Standardpfade (abschließender Doppelpunkt)
+                local $ENV{TEXINPUTS} = "$latex_assets_dir:$tempdir:";
+                for (1 .. 2) {
+                    system("pdflatex -no-shell-escape -interaction=nonstopmode -output-directory=\"$tempdir\" \"$tex_path\" > /dev/null 2>&1");
+                }
+            }
 
             if (-e $pdf_path && -s $pdf_path) {
                 my $pdf_bytes = Mojo::File->new($pdf_path)->slurp;
